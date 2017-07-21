@@ -16,61 +16,49 @@ class Model:
                  batch_size,
                  w_input_size,
                  c_input_size,
-                 c_length,
-                 w_length,
-                 labels,
+                 n_labels,
                  n_chars,
                  n_words,
                  phase):
-        label_size = labels.shape[2]
-        # self._char_in = tf.placeholder(dtype=tf.int32,name='char_in',shape=[batch_size, c_input_size])
+
+        self._char_in =  tf.sparse_placeholder(dtype=tf.int32,
+                                              shape=np.array([batch_size, c_input_size], dtype=np.int64))
         self._word_in = tf.sparse_placeholder(dtype=tf.int32,
                                               shape=np.array([batch_size, w_input_size], dtype=np.int64))
 
         self._words = tf.get_variable('words', initializer=tf.contrib.layers.xavier_initializer(),
-                                      shape=[n_words, 50], dtype=tf.float32)
+                                      shape=[n_words, 300], dtype=tf.float32)
 
         self._w_lens = tf.placeholder(tf.int32, [batch_size])
-        # self._c_lens = tf.placeholder(tf.int32, [batch_size])
-        word_lookup = tf.nn.embedding_lookup_sparse(self._words, self._word_in, None,
-                                                    combiner='sqrtn')  # char_lookup = tf.nn.embedding_lookup(self._chars, self._char_in)
+        self._c_lens = tf.placeholder(tf.int32, [batch_size])
+
+        word_lookup = tf.nn.embedding_lookup_sparse(self._words, self._word_in, None)  # char_lookup = tf.nn.embedding_lookup(self._chars, self._char_in)
 
         fw_cell = rnn.LSTMCell(32, initializer=tf.contrib.layers.xavier_initializer())
         bw_cell = rnn.LSTMCell(32, initializer=tf.contrib.layers.xavier_initializer())
-        word_lookup = tf.reshape(word_lookup, [batch_size,-1,50])
+        print(self._w_lens)
+        word_lookup = tf.reshape(word_lookup, [batch_size,-1,300])
+
         print(word_lookup)
-        # filte = tf.get_variable('W_conv', [4, 100, 100])
-        # b_c = tf.get_variable('b_conv', [100])
-        # rnn_input = tf.nn.conv1d(word_lookup, filte, 1, padding='VALID')
-        # rnn_input = tf.nn.relu(rnn_input + b_c)
-        # print(rnn_input)
-        # rnn_input = tf.nn.max_pool(
-        #     tf.expand_dims(rnn_input, axis=0),
-        #     strides=[1, 1, 2, 1],
-        #     ksize=[1, 1, 2, 1],
-        #     padding='VALID')
-        # print(rnn_input)
-        # rnn_input = tf.squeeze(rnn_input, axis=0)
-        # print(rnn_input)
-        # if phase == Phase.Train:
-        #     rnn_input = tf.nn.dropout(rnn_input, 0.9)
 
-        _, rnn_out = tf.nn.bidirectional_dynamic_rnn(fw_cell, bw_cell, word_lookup, dtype=tf.float32, swap_memory=True,sequence_length=w_length)
-
+        _, rnn_out = tf.nn.bidirectional_dynamic_rnn(fw_cell, bw_cell, word_lookup, dtype=tf.float32, swap_memory=True, sequence_length=self._w_lens)
+        print(rnn_out)
         hidden = tf.concat([rnn_out[0][1], rnn_out[1][1]], axis=1)
 
         print(hidden)
 
         w = tf.get_variable("w", initializer=tf.contrib.layers.xavier_initializer(),
-                            shape=[hidden.shape[1], label_size], dtype=tf.float32)
+                            shape=[hidden.shape[1], n_labels], dtype=tf.float32)
         b = tf.get_variable("bias", shape=[1], dtype=tf.float32)
 
         logits = tf.matmul(hidden, w) + b
 
         if phase == Phase.Validation or phase == Phase.Train:
-            self._y = tf.placeholder(tf.int32, shape=[batch_size, label_size], name='lbl')
+            self._y = tf.placeholder(tf.int32, shape=[batch_size], name='lbl')
+            labels = tf.reshape(tf.one_hot(self._y, n_labels), [batch_size, -1])
+
             print(self._y)
-            losses = tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(self._y, dtype=tf.float32), logits=logits)
+            losses = tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(labels, dtype=tf.float32), logits=logits)
             # tf.nn.sparse_softmax_cross_entropy_with_logits(labels=tf.argmax(tf.cast(self._y, tf.float32), axis=1),
             # logits=logits)
             self._loss = loss = tf.reduce_sum(losses)
@@ -81,7 +69,7 @@ class Model:
             res = tf.argmax(logits, axis=1)
 
             # get highest scoring classes for all outputs, returns booleans
-            correct = tf.equal(res, tf.argmax(self._y, axis=1))
+            correct = tf.equal(res, tf.argmax(labels, axis=1))
             print(correct)
             # get average of the booleans == accuracy
             self._accuracy = tf.reduce_mean(tf.cast(correct, tf.float32))

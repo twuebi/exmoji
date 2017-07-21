@@ -3,92 +3,32 @@ import tensorflow as tf
 
 from exmoji.nn.model import Model, Phase
 
-
-def generate_instances(
-        set, max_w, max_c,
-        batch_size=1024):
-    n_batches = len(set.data) // batch_size
-
-    labels = np.zeros(
-        shape=(
-            n_batches,
-            batch_size,
-            set.n_labels),
-        dtype=np.int8)
-    lengths_w = np.zeros(
-        shape=(
-            n_batches,
-            batch_size),
-        dtype=np.int64)
-    lengths_c = np.zeros(
-        shape=(
-            n_batches,
-            batch_size),
-        dtype=np.int64)
-    words = np.zeros(
-        shape=(
-            n_batches,
-            batch_size * max_w),
-        dtype=np.int32)
-    chars = np.zeros(
-        shape=(
-            n_batches,
-            batch_size,
-            max_c),
-        dtype=np.uint16)
-    b = []
-    for batch in range(n_batches):
-        batch_list = []
-        sent_pos = []
-        value_list = []
-        for idx in range(batch_size):
-            position_in_batch = idx
-            c = set.data[(batch * batch_size) + idx][0]
-            for position_in_sent, word in enumerate(set.data[(batch * batch_size) + idx][1]):
-                batch_list.append(position_in_batch)
-                sent_pos.append(position_in_sent)
-                value_list.append(word)
-            # words[batch, idx, :len(w)] = w
-            chars[batch, idx, :len(c)] = c
-
-            labels[batch, idx, set.data[(batch * batch_size) + idx][2]] = 1
-
-            # Sequence
-            timesteps_w = min(set.max_len_word, len(set.data[(batch * batch_size) + idx][1]))
-            timesteps_c = min(set.max_len_char, len(c))
-            # Sequence length (time steps)
-            lengths_w[batch, idx] = timesteps_w
-            lengths_c[batch, idx] = timesteps_c
-            # Word characters
-        b.append([[batch_list, sent_pos], [value_list]])
-    return (np.array(b), chars, lengths_w, lengths_c, labels)
-
-
 def train(training_set, validation_set):
     n_chars = max(training_set.n_chars, validation_set.n_chars)
     n_words = max(training_set.n_words, validation_set.n_words)
-
+    n_labels = max(training_set.n_labels, validation_set.n_labels)
     max_w = max(training_set.max_len_word, validation_set.max_len_word)
     max_c = max(training_set.max_len_char, validation_set.max_len_char)
-    batch_size = 256
+    batch_size = 128
     print("coo start")
-    char_train_mat, word_train_mat = training_set.create_coo_batches(batch_size)
-    char_val_mat, word_val_mat = validation_set.create_coo_batches(batch_size)
+    train_matrices, train_seq_lengths, train_labels = training_set.create_coo_batches(batch_size)
+    val_matrices, val_seq_lengths, val_labels = validation_set.create_coo_batches(batch_size)
 
-    _, _, train_w_len, train_c_len, train_labels = generate_instances(training_set, max_w, max_c, batch_size)
-    _, _, val_w_len, val_c_len, val_labels = generate_instances(validation_set, max_w, max_c, batch_size)
-    print(val_labels.shape[0])
+    char_train_mat ,word_train_mat = train_matrices
+    char_val_mat, word_val_mat = val_matrices
+
+    val_c_len,val_w_len = val_seq_lengths
+    train_c_len,train_w_len = train_seq_lengths
+
     # lens = max(len(train_w), len(val_w))
-
+    print(len(word_train_mat))
     with tf.Session() as sess:
         with tf.variable_scope('model', reuse=False):
             train_model = Model(
                 batch_size=batch_size,
                 c_input_size=max_c,
                 w_input_size=max_w,
-                c_length=train_c_len,
-                w_length=train_w_len,
-                labels=train_labels,
+                n_labels=n_labels,
                 n_chars=n_chars,
                 n_words=n_words,
                 phase=Phase.Train)
@@ -97,16 +37,14 @@ def train(training_set, validation_set):
                 batch_size=batch_size,
                 c_input_size=max_c,
                 w_input_size=max_w,
-                c_length=val_c_len,
-                w_length=val_w_len,
-                labels=val_labels,
+                n_labels=n_labels,
                 n_chars=n_chars,
                 n_words=n_words,
                 phase=Phase.Validation)
 
         sess.run(tf.global_variables_initializer())
 
-        for epoch in range(50):
+        for epoch in range(2048):
             train_loss = 0.0
             validation_loss = 0.0
             accuracy = 0.0
@@ -139,7 +77,6 @@ def train(training_set, validation_set):
                     ), val_model.lens_w: val_w_len[batch],
                     val_model.y: val_labels[batch]})
                 validation_loss += loss
-
             train_loss /= len(word_train_mat)
             validation_loss /= len(word_val_mat)
             accuracy /= len(word_val_mat)
