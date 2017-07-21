@@ -1,4 +1,3 @@
-from loader import Data
-from processing.loader import Set
-from nn.train import train
-from nn.model import Model
+from exmoji.processing.loader import Datalist
+from exmoji.nn.train import train
+from exmoji.nn.model import Model
