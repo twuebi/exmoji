@@ -1,5 +1,6 @@
 import nltk
 import numpy as np
+from scipy.sparse import lil_matrix
 
 
 class Datalist:
@@ -33,9 +34,42 @@ class Datalist:
                     emotion = self.emo_nums.number(parts[3], True)
                     self.data.append((chars, words, emotion))
 
+    def create_coo_batches(self, batch_size):
+        """
+        Creates a list of lists of sparse char and word batches in COO format.
+
+        :param batch_size: Size of individual batches
+        :return: [char batches, word batches] in COO format
+        """
+
+        char_batch = lil_matrix((batch_size, self.max_len_char), dtype=np.uint8)
+        word_batch = lil_matrix((batch_size, self.max_len_word), dtype=np.uint32)
+
+        matrices = [[], []]
+        for y, (chars, words, _) in enumerate(self):
+            if y and not y % batch_size:
+                self._sparse[0].append(char_batch.tocoo())
+                self._sparse[1].append(word_batch.tocoo())
+                char_batch = lil_matrix((batch_size, self.max_len_char), dtype=np.uint8)
+                word_batch = lil_matrix((batch_size, self.max_len_word), dtype=np.uint32)
+
+            for x, char_num in enumerate(chars): 
+                char_batch[y % batch_size, x] = char_num
+
+            for x, word_num in enumerate(words):
+                word_batch[y % batch_size, x] = word_num
+
+        return matrices
+
     def __iter__(self):
         for entry in self.data:
             yield entry
+
+    def __getitem__(self, index):
+        return self.data[index]
+
+    def __len__(self):
+        return len(self.data)
 
     def __repr__(self):
         return "<Datalist with {} rows>".format(len(self.data))
@@ -63,7 +97,7 @@ class Numberer:
 
     def number(self, value, train):
 
-        if value not in self.value2num and train:
+        if train and value not in self.value2num:
             self.value2num[value] = self.idx
             self.num2value[self.idx] = value
             self.idx += 1
