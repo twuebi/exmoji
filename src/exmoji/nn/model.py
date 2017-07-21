@@ -2,6 +2,7 @@ from enum import Enum
 
 import tensorflow as tf
 from tensorflow.contrib import rnn
+import numpy as np
 
 class Phase(Enum):
     Train = 0
@@ -13,6 +14,7 @@ class Model:
                  batch_size,
                  w_input_size,
                  c_input_size,
+                 shapes,
                  c_length,
                  w_length,
                  labels,
@@ -20,36 +22,141 @@ class Model:
                  n_words,
                  phase):
         label_size = labels.shape[2]
-
-        self._char_in = tf.placeholder(dtype=tf.int32,name='char_in',shape=[batch_size, c_input_size])
-        self._word_in = tf.placeholder(name='words_in', dtype=tf.int32, shape=[batch_size, w_input_size])
-
+        #self._char_in = tf.placeholder(dtype=tf.int32,name='char_in',shape=[batch_size, c_input_size])
+        self._word_in = tf.placeholder(name='words_in', dtype=tf.int64, shape=None)
+        w_in = tf.reshape(self._word_in,[-1,2])
+        self._values = tf.placeholder(name='values',dtype=tf.int64, shape=None)
+        v_in = tf.reshape(self._values,[-1])
+        print(w_in,w_input_size)
+        print(v_in)
+        self._word1 = tf.SparseTensor(w_in,v_in, np.array([batch_size, w_input_size],dtype=np.int64))
+        wd1 = tf.sparse_reorder(self._word1)
+        print(wd1)
         self._words = tf.get_variable('words', initializer=tf.contrib.layers.xavier_initializer(),
-                                      shape=[n_words, 1], dtype=tf.float16)
-
-        self._chars = tf.get_variable('chars', initializer=tf.contrib.layers.xavier_initializer(),
-                                      shape=[n_chars, 20], dtype=tf.float32)
+                                       shape=[n_words, 100], dtype=tf.float32)
+        print(self._words)
+        # self._chars = tf.get_variable('chars', initializer=tf.contrib.layers.xavier_initializer(),
+        #                               shape=[n_chars, 20], dtype=tf.float32)
 
         self._w_lens = tf.placeholder(tf.int32,[batch_size])
-        self._c_lens = tf.placeholder(tf.int32, [batch_size])
+        #self._c_lens = tf.placeholder(tf.int32, [batch_size])
+        word_lookup = tf.nn.embedding_lookup_sparse(self._words, wd1,None,combiner='mean',partition_strategy='div')        #char_lookup = tf.nn.embedding_lookup(self._chars, self._char_in)
 
-        word_lookup = tf.nn.embedding_lookup(self._words, self._word_in)
-        char_lookup = tf.nn.embedding_lookup(self._chars, self._char_in)
+        fw_cell = rnn.LSTMCell(64,initializer=tf.contrib.layers.xavier_initializer())
+        bw_cell = rnn.LSTMCell(64, initializer=tf.contrib.layers.xavier_initializer())
+        #
+        print(word_lookup)
+        word_lookup = tf.reshape(word_lookup,[batch_size,-1])
+        print(word_lookup)
+        # filte = tf.get_variable('W_conv', [4, 100, 100])
+        # b_c = tf.get_variable('b_conv', [100])
+        # rnn_input = tf.nn.conv1d(word_lookup, filte, 1, padding='VALID')
+        # rnn_input = tf.nn.relu(rnn_input + b_c)
+        # print(rnn_input)
+        # rnn_input = tf.nn.max_pool(
+        #     tf.expand_dims(rnn_input, axis=0),
+        #     strides=[1, 1, 2, 1],
+        #     ksize=[1, 1, 2, 1],
+        #     padding='VALID')
+        # print(rnn_input)
+        # rnn_input = tf.squeeze(rnn_input, axis=0)
+        # print(rnn_input)
+        # if phase == Phase.Train:
+        #     rnn_input = tf.nn.dropout(rnn_input, 0.9)
+        #
+        # filte1 = tf.get_variable('W_conv1', [2, 100, 50])
+        # b_c1 = tf.get_variable('b_conv1', [50])
+        # rnn_input = tf.nn.conv1d(rnn_input, filte1, 1, padding='VALID')
+        # rnn_input = tf.nn.relu(rnn_input + b_c1)
+        # print(rnn_input)
+        # rnn_input = tf.nn.max_pool(
+        #     tf.expand_dims(rnn_input, axis=0),
+        #     strides=[1, 1, 2, 1],
+        #     ksize=[1, 1, 2, 1],
+        #     padding='VALID')
+        # print(rnn_input)
+        # rnn_input = tf.squeeze(rnn_input, axis=0)
+        # print(rnn_input)
+        # if phase == Phase.Train:
+        #     rnn_input = tf.nn.dropout(rnn_input, 0.9)
+        #
+        # filte2 = tf.get_variable('W_conv2', [2, 50, 25])
+        # b_c2 = tf.get_variable('b_conv2', [25])
+        # rnn_input = tf.nn.conv1d(rnn_input, filte2, 1, padding='VALID')
+        # rnn_input = tf.nn.relu(rnn_input + b_c2)
+        # print(rnn_input)
+        # rnn_input = tf.nn.max_pool(
+        #     tf.expand_dims(rnn_input, axis=0),
+        #     strides=[1, 1, 2, 1],
+        #     ksize=[1, 1, 2, 1],
+        #     padding='VALID')
+        # print(rnn_input)
+        # rnn_input = tf.squeeze(rnn_input, axis=0)
+        # print(rnn_input)
+        # if phase == Phase.Train:
+        #     rnn_input = tf.nn.dropout(rnn_input, 0.9)
+        #
+        # filte3 = tf.get_variable('W_conv3', [2, 25, 12])
+        # b_c3 = tf.get_variable('b_conv3', [12])
+        # rnn_input = tf.nn.conv1d(rnn_input, filte3, 1, padding='VALID')
+        # rnn_input = tf.nn.relu(rnn_input + b_c3)
+        # print(rnn_input)
+        # rnn_input = tf.nn.max_pool(
+        #     tf.expand_dims(rnn_input, axis=0),
+        #     strides=[1, 1, 2, 1],
+        #     ksize=[1, 1, 2, 1],
+        #     padding='VALID')
+        # print(rnn_input)
+        # rnn_input = tf.squeeze(rnn_input, axis=0)
+        # print(rnn_input)
+        # if phase == Phase.Train:
+        #     rnn_input = tf.nn.dropout(rnn_input, 0.9)
 
-        fw_cell = rnn.LSTMCell(32,initializer=tf.contrib.layers.xavier_initializer())
-        bw_cell = rnn.LSTMCell(32, initializer=tf.contrib.layers.xavier_initializer())
+        _ , rnn_out = tf.nn.bidirectional_dynamic_rnn(fw_cell,bw_cell,word_lookup,dtype=tf.float32,swap_memory=True)
 
-        _ , rnn_out = tf.nn.bidirectional_dynamic_rnn(fw_cell,bw_cell,char_lookup,sequence_length=self._c_lens,dtype=tf.float32,swap_memory=True)
+        # filte = tf.get_variable('W_conv', [50, 20, 25])
+        # b_c = tf.get_variable('b_conv', [50])
+        # print(char_lookup)
+        # rnn_input = tf.nn.conv1d(char_lookup, filte, 20, padding='VALID')
+        # rnn_input = tf.nn.relu(rnn_input + b_c)
+        # rnn_input = tf.nn.max_pool(
+        #     tf.expand_dims(rnn_input, axis=0),
+        #     strides=[1, 1, 1, 1],
+        #     ksize=[1, 1, 2, 1],
+        #     padding='VALID')
+        # rnn_input = tf.squeeze(rnn_input, axis=0)
+        # print(rnn_input)
+        # if phase == Phase.Train:
+        #     rnn_input = tf.nn.dropout(rnn_input, 0.9)
+        #
+        # filte = tf.get_variable('W_conv1', [20, 50, 25])
+        # b_c = tf.get_variable('b_conv1', [25])
+        # print(rnn_input)
+        # rnn_input = tf.nn.conv1d(rnn_input, filte, 10, padding='VALID')
+        # print(rnn_input)
+        # rnn_input = tf.nn.relu(rnn_input + b_c)
+        # rnn_input = tf.nn.max_pool(
+        #     tf.expand_dims(rnn_input, axis=0),
+        #     strides=[1, 1, 1, 1],
+        #     ksize=[1, 1, 2, 1],
+        #     padding='VALID')
+        # rnn_input = tf.squeeze(rnn_input, axis=0)
+        #
+        # print(rnn_input)
+        # if phase == Phase.Train:
+        #     rnn_input = tf.nn.dropout(rnn_input, 0.9)
+
+        _, rnn_out = tf.nn.bidirectional_dynamic_rnn(fw_cell, bw_cell, word_lookup, dtype=tf.float32, swap_memory=True)
 
         hidden = tf.concat([rnn_out[0][1],rnn_out[1][1]], axis=1)
         w = tf.get_variable("w", initializer=tf.contrib.layers.xavier_initializer(),
-                            shape=[hidden.shape[1], label_size])
-        b = tf.get_variable("bias", shape=[1])
+                            shape=[hidden.shape[1], label_size],dtype=tf.float32)
+        b = tf.get_variable("bias", shape=[1],dtype=tf.float32)
 
         logits = tf.matmul(hidden,w) + b
 
         if phase == Phase.Validation or phase == Phase.Train:
-            self._y = tf.placeholder(tf.int8, shape=[batch_size, label_size], name='lbl')
+            self._y = tf.placeholder(tf.int32, shape=[batch_size, label_size], name='lbl')
             losses = tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(self._y,dtype=tf.float32),logits=logits)
             #tf.nn.sparse_softmax_cross_entropy_with_logits(labels=tf.argmax(tf.cast(self._y, tf.float32), axis=1),
                                                                 #logits=logits)
@@ -78,6 +185,10 @@ class Model:
     @property
     def lens_c(self):
         return self._c_lens
+
+    @property
+    def values(self):
+        return self._values
 
     @property
     def loss(self):
