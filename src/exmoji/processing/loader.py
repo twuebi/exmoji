@@ -36,27 +36,52 @@ class Datalist:
 
     def create_coo_batches(self, batch_size):
         """
-        Creates a list of lists of sparse char and word batches in COO format.
+        Creates a list of lists of sparse char and word batches in COO format
+        together with the lengths of each char and word sequence and labels for each sample.
 
         :param batch_size: Size of individual batches
-        :return: [char batches, word batches] in COO format
+        :return: [char batches, word batches],
+            [char sequence length batches, word sequence length batches],
+            label batches
         """
 
         char_batch = lil_matrix((batch_size, self.max_len_char), dtype=np.uint8)
         word_batch = lil_matrix((batch_size, self.max_len_word), dtype=np.uint32)
+        chars_seq_length = np.empty(batch_size, dtype=np.uint32)
+        words_seq_length = np.empty(batch_size, dtype=np.uint32)
+        label_batch = np.empty(batch_size, dtype=np.uint8)
 
         matrices = [[], []]
-        for y, (chars, words, _) in enumerate(self):
+        seq_length_batches = [[], []]
+        labels = []
+
+        for y, (chars, words, emotion) in enumerate(self):
             if y and not y % batch_size:
+                #append previous batch data
                 matrices[0].append(char_batch.tocoo())
                 matrices[1].append(word_batch.tocoo())
+                seq_length_batches[0].append(chars_seq_length)
+                seq_length_batches[1].append(words_seq_length)
+                labels.append(label_batch)
+
+                #create empty representations for the next batch
                 char_batch = lil_matrix((batch_size, self.max_len_char), dtype=np.uint8)
                 word_batch = lil_matrix((batch_size, self.max_len_word), dtype=np.uint32)
+                char_seq_length = np.empty(batch_size)
+                word_seq_length = np.empty(batch_size)
+                label_batch = np.empty(batch_size)
 
-            char_batch[y % batch_size, :len(chars)] = chars
-            word_batch[y % batch_size, :len(words)] = words
+            chars_length = len(chars)
+            words_length = len(words)
+            
+            index = y % batch_size
+            char_batch[index, :chars_length] = chars
+            word_batch[index, :words_length] = words
+            chars_seq_length[index] = chars_length
+            words_seq_length[index] = words_length
+            label_batch[index] = emotion
 
-        return matrices
+        return matrices, seq_length_batches, labels
 
     def __iter__(self):
         for entry in self.data:
