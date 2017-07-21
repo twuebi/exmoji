@@ -48,8 +48,8 @@ class Datalist:
         matrices = [[], []]
         for y, (chars, words, _) in enumerate(self):
             if y and not y % batch_size:
-                self._sparse[0].append(char_batch.tocoo())
-                self._sparse[1].append(word_batch.tocoo())
+                matrices[0].append(char_batch.tocoo())
+                matrices[1].append(word_batch.tocoo())
                 char_batch = lil_matrix((batch_size, self.max_len_char), dtype=np.uint8)
                 word_batch = lil_matrix((batch_size, self.max_len_word), dtype=np.uint32)
 
