@@ -53,11 +53,8 @@ class Datalist:
                 char_batch = lil_matrix((batch_size, self.max_len_char), dtype=np.uint8)
                 word_batch = lil_matrix((batch_size, self.max_len_word), dtype=np.uint32)
 
-            for x, char_num in enumerate(chars): 
-                char_batch[y % batch_size, x] = char_num
-
-            for x, word_num in enumerate(words):
-                word_batch[y % batch_size, x] = word_num
+            char_batch[y % batch_size, :len(chars)] = chars
+            word_batch[y % batch_size, :len(words)] = words
 
         return matrices
 
