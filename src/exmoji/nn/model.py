@@ -27,10 +27,11 @@ class Model:
         w_in = tf.reshape(self._word_in,[-1,2])
         self._values = tf.placeholder(name='values',dtype=tf.int64, shape=None)
         v_in = tf.reshape(self._values,[-1])
-        print(w_in)
+        print(w_in,w_input_size)
         print(v_in)
         self._word1 = tf.SparseTensor(w_in,v_in, np.array([batch_size, w_input_size],dtype=np.int64))
-        print(self._word1)
+        wd1 = tf.sparse_reorder(self._word1)
+        print(wd1)
         self._words = tf.get_variable('words', initializer=tf.contrib.layers.xavier_initializer(),
                                        shape=[n_words, 100], dtype=tf.float32)
         print(self._words)
@@ -39,14 +40,13 @@ class Model:
 
         self._w_lens = tf.placeholder(tf.int32,[batch_size])
         #self._c_lens = tf.placeholder(tf.int32, [batch_size])
-
-        word_lookup = tf.nn.embedding_lookup_sparse(self._words, self._word1,None,combiner='sqrtn')        #char_lookup = tf.nn.embedding_lookup(self._chars, self._char_in)
+        word_lookup = tf.nn.embedding_lookup_sparse(self._words, wd1,None,combiner='mean',partition_strategy='div')        #char_lookup = tf.nn.embedding_lookup(self._chars, self._char_in)
 
         fw_cell = rnn.LSTMCell(64,initializer=tf.contrib.layers.xavier_initializer())
         bw_cell = rnn.LSTMCell(64, initializer=tf.contrib.layers.xavier_initializer())
         #
         print(word_lookup)
-        word_lookup = tf.reshape(word_lookup,[batch_size,-1,100])
+        word_lookup = tf.reshape(word_lookup,[batch_size,-1])
         print(word_lookup)
         # filte = tf.get_variable('W_conv', [4, 100, 100])
         # b_c = tf.get_variable('b_conv', [100])
