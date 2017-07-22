@@ -5,12 +5,22 @@ from scipy.sparse import lil_matrix
 
 class Datalist:
 
-    def __init__(self, train=False):
+    def __init__(self, trained_numberers=None):
+        """
+        Creates a new Datalist object.
+        if no pretrained numberers are given new numbereres are trained while loading.
+
+        :param trained_numberers: A tuple of (char_nums, word_nums, emo_nums) or None
+        """
         self.data = []
-        self.train = train
-        self.char_nums = Numberer()
-        self.word_nums = Numberer()
-        self.emo_nums = Numberer()
+        self.train = trained_numberers is None
+        if self.train:
+            self.char_nums = Numberer()
+            self.word_nums = Numberer()
+            self.emo_nums = Numberer()
+        else:
+            self.char_nums, self.word_nums, self.emo_nums = trained_numberers
+
         self.max_len_char = -1
         self.max_len_word = -1
 
@@ -110,6 +120,10 @@ class Datalist:
 
     def __repr__(self):
         return "<Datalist with {} rows>".format(len(self.data))
+
+    @property
+    def numberers(self):
+        return self.char_nums, self.word_nums, self.emo_nums
 
     @property
     def n_chars(self):
