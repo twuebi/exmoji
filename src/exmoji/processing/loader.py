@@ -34,19 +34,29 @@ class Datalist:
                     emotion = self.emo_nums.number(parts[3], True)
                     self.data.append((chars, words, emotion))
 
-    def create_coo_batches(self, batch_size):
+    def create_coo_batches(self, batch_size, mode='indices'):
         """
         Creates a list of lists of sparse char and word batches in COO format
         together with the lengths of each char and word sequence and labels for each sample.
 
         :param batch_size: Size of individual batches
+        :param mode: Type of the batch: 'indices' or 'multi_hot'
         :return: [char batches, word batches],
             [char sequence length batches, word sequence length batches],
             label batches
         """
+        if mode not in {'indices', 'multi_hot'}:
+            raise ValueError("Batch mode must be one of ('indices', 'multi_hot')")
 
-        char_batch = lil_matrix((batch_size, self.max_len_char), dtype=np.uint8)
-        word_batch = lil_matrix((batch_size, self.max_len_word), dtype=np.uint32)
+        if mode == 'indices':
+            char_width = self.max_len_char
+            word_width = self.max_len_word
+        else:
+            char_width = self.n_chars
+            word_width = self.n_words
+
+        char_batch = lil_matrix((batch_size, char_width), dtype=np.uint8)
+        word_batch = lil_matrix((batch_size, word_width), dtype=np.uint32)
         chars_seq_length = np.empty(batch_size, dtype=np.uint32)
         words_seq_length = np.empty(batch_size, dtype=np.uint32)
         label_batch = np.empty(batch_size, dtype=np.uint8)
@@ -65,8 +75,8 @@ class Datalist:
                 labels.append(label_batch)
 
                 #create empty representations for the next batch
-                char_batch = lil_matrix((batch_size, self.max_len_char), dtype=np.uint8)
-                word_batch = lil_matrix((batch_size, self.max_len_word), dtype=np.uint32)
+                char_batch = lil_matrix((batch_size, char_width), dtype=np.uint8)
+                word_batch = lil_matrix((batch_size, word_width), dtype=np.uint32)
                 char_seq_length = np.empty(batch_size)
                 word_seq_length = np.empty(batch_size)
                 label_batch = np.empty(batch_size)
@@ -75,8 +85,13 @@ class Datalist:
             words_length = len(words)
             
             index = y % batch_size
-            char_batch[index, :chars_length] = chars
-            word_batch[index, :words_length] = words
+            if mode == 'indices':
+                char_batch[index, :chars_length] = chars
+                word_batch[index, :words_length] = words
+            else:
+                char_batch[index, chars] = 1
+                word_batch[index, words] = 1
+
             chars_seq_length[index] = chars_length
             words_seq_length[index] = words_length
             label_batch[index] = emotion
