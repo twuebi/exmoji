@@ -1,6 +1,5 @@
 import nltk
 import numpy as np
-from scipy.sparse import lil_matrix
 
 
 class Datalist:
@@ -23,6 +22,7 @@ class Datalist:
 
         self.max_len_char = -1
         self.max_len_word = -1
+        self.max_len_sentences = -1
 
     def load(self, path):
         with open(path) as f:
@@ -31,30 +31,30 @@ class Datalist:
 
                 if line:
                     parts = line.split('\t')
-                    chars = np.array([self.char_nums.number(c, self.train) for c in parts[1]], dtype=np.uint8)
 
-                    if len(chars) > self.max_len_char:
-                        self.max_len_char = len(chars)
+                    sents = nltk.sent_tokenize(parts[1], language="german")
+                    if len(sents) > self.max_len_sentences:
+                        self.max_len_sentences = len(sents)
 
-                    words = np.array([self.word_nums.number(word, self.train) for word in nltk.word_tokenize(parts[1])], dtype=np.uint32)
+                    chars = [[self.char_nums.number(c, self.train) for c in sent] for sent in sents]
 
-                    if len(words) > self.max_len_word:
-                        self.max_len_word = len(words)
+                    max_sentence_chars = max(map(len, chars))
+                    if max_sentence_chars > self.max_len_char:
+                        self.max_len_char = max_sentence_chars
+
+                    sentences = [
+                        [self.word_nums.number(word, self.train) for word in nltk.word_tokenize(sent, language="german")]
+                        for sent in sents
+                    ]
+
+                    max_sentence_len = max(map(len, sentences))
+                    if max_sentence_len > self.max_len_word:
+                        self.max_len_word = max_sentence_len
 
                     emotion = self.emo_nums.number(parts[3], True)
-                    self.data.append((chars, words, emotion))
+                    self.data.append((chars, sentences, emotion))
 
-    def create_coo_batches(self, batch_size, mode='indices'):
-        """
-        Creates a list of lists of sparse char and word batches in COO format
-        together with the lengths of each char and word sequence and labels for each sample.
-
-        :param batch_size: Size of individual batches
-        :param mode: Type of the batch: 'indices' or 'multi_hot'
-        :return: [char batches, word batches],
-            [char sequence length batches, word sequence length batches],
-            label batches
-        """
+    def create_batches(self, batch_size, mode='indices'):
         if mode not in {'indices', 'multi_hot'}:
             raise ValueError("Batch mode must be one of ('indices', 'multi_hot')")
 
@@ -65,45 +65,51 @@ class Datalist:
             char_width = self.n_chars
             word_width = self.n_words
 
-        char_batch = lil_matrix((batch_size, char_width), dtype=np.uint8)
-        word_batch = lil_matrix((batch_size, word_width), dtype=np.uint32)
-        chars_seq_length = np.empty(batch_size, dtype=np.uint32)
-        words_seq_length = np.empty(batch_size, dtype=np.uint32)
+        char_batch = np.zeros((batch_size, self.max_len_sentences, char_width), dtype=np.uint8)
+        word_batch = np.zeros((batch_size, self.max_len_sentences, word_width), dtype=np.uint32)
+        sentence_lengths = np.empty(batch_size, dtype=np.uint32)
+        chars_seq_length = np.zeros((batch_size, self.max_len_sentences), dtype=np.uint32)
+        words_seq_length = np.zeros((batch_size, self.max_len_sentences), dtype=np.uint32)
         label_batch = np.empty(batch_size, dtype=np.uint8)
 
         matrices = [[], []]
-        seq_length_batches = [[], []]
+        seq_length_batches = [[], [], []]
         labels = []
 
         for y, (chars, words, emotion) in enumerate(self):
             if y and not y % batch_size:
                 #append previous batch data
-                matrices[0].append(char_batch.tocoo())
-                matrices[1].append(word_batch.tocoo())
+                matrices[0].append(char_batch)
+                matrices[1].append(word_batch)
                 seq_length_batches[0].append(chars_seq_length)
                 seq_length_batches[1].append(words_seq_length)
+                seq_length_batches[2].append(sentence_lengths)
                 labels.append(label_batch)
 
                 #create empty representations for the next batch
-                char_batch = lil_matrix((batch_size, char_width), dtype=np.uint8)
-                word_batch = lil_matrix((batch_size, word_width), dtype=np.uint32)
-                char_seq_length = np.empty(batch_size)
-                word_seq_length = np.empty(batch_size)
-                label_batch = np.empty(batch_size)
+                char_batch = np.zeros((batch_size, self.max_len_sentences, char_width), dtype=np.uint8)
+                word_batch = np.zeros((batch_size, self.max_len_sentences, word_width), dtype=np.uint32)
+                sentence_lengths = np.empty(batch_size, dtype=np.uint32)
+                chars_seq_length = np.zeros((batch_size, self.max_len_sentences), dtype=np.uint32)
+                words_seq_length = np.zeros((batch_size, self.max_len_sentences), dtype=np.uint32)
+                label_batch = np.empty(batch_size, dtype=np.uint8)
 
-            chars_length = len(chars)
-            words_length = len(words)
+            chars_lengths = list(map(len, chars))
+            words_lengths = list(map(len, words))
+            sentence_length = len(chars)
             
             index = y % batch_size
-            if mode == 'indices':
-                char_batch[index, :chars_length] = chars
-                word_batch[index, :words_length] = words
-            else:
-                char_batch[index, chars] = 1
-                word_batch[index, words] = 1
+            for i, (char, word, char_len, word_len) in enumerate(zip(chars, words, chars_lengths, words_lengths)):
+                if mode == 'indices':
+                    char_batch[index, i, :char_len] = char
+                    word_batch[index, i, :word_len] = word
+                else:
+                    char_batch[index, i, char] = 1
+                    word_batch[index, i, word] = 1
 
-            chars_seq_length[index] = chars_length
-            words_seq_length[index] = words_length
+            sentence_lengths[index] = sentence_length
+            chars_seq_length[index, :sentence_length] = chars_lengths
+            words_seq_length[index, :sentence_length] = words_lengths
             label_batch[index] = emotion
 
         return matrices, seq_length_batches, labels
