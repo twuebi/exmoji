@@ -1,6 +1,6 @@
 import nltk
 import numpy as np
-
+from collections import Counter
 
 class Datalist:
 
@@ -14,9 +14,9 @@ class Datalist:
         self.data = []
         self.train = trained_numberers is None
         if self.train:
-            self.char_nums = Numberer()
-            self.word_nums = Numberer()
-            self.emo_nums = Numberer()
+            self.char_nums = Numberer(2)  # 0 = null, 1 = unknown
+            self.word_nums = Numberer(2)  # 0 = null, 1 = unknown
+            self.emo_nums = Numberer(0)   # no null and no unkown emotions
         else:
             self.char_nums, self.word_nums, self.emo_nums = trained_numberers
 
@@ -26,13 +26,14 @@ class Datalist:
 
     def load(self, path):
         with open(path) as f:
+            length = []
             for line in f:
                 line = line.replace('\n', '')
 
                 if line:
                     parts = line.split('\t')
 
-                    sents = nltk.sent_tokenize(parts[1], language="german")
+                    sents = nltk.sent_tokenize(parts[1], language="german")#
                     if len(sents) > self.max_len_sentences:
                         self.max_len_sentences = len(sents)
 
@@ -46,13 +47,18 @@ class Datalist:
                         [self.word_nums.number(word, self.train) for word in nltk.word_tokenize(sent, language="german")]
                         for sent in sents
                     ]
-
-                    max_sentence_len = max(map(len, sentences))
+                    lens = [len(sen) for sen in sentences]
+                    length.append(np.sum(lens))
+                    max_sentence_len = max(lens)
                     if max_sentence_len > self.max_len_word:
                         self.max_len_word = max_sentence_len
 
                     emotion = self.emo_nums.number(parts[3], True)
+
                     self.data.append((chars, sentences, emotion))
+
+        self.data = np.array(self.data).T[:,np.argsort(length)]
+        self.data = self.data.T
 
     def create_batches(self, batch_size, mode='indices'):
         if mode not in {'indices', 'multi_hot'}:
@@ -97,7 +103,7 @@ class Datalist:
             chars_lengths = list(map(len, chars))
             words_lengths = list(map(len, words))
             sentence_length = len(chars)
-            
+
             index = y % batch_size
             for i, (char, word, char_len, word_len) in enumerate(zip(chars, words, chars_lengths, words_lengths)):
                 if mode == 'indices':
@@ -146,11 +152,11 @@ class Datalist:
 
 class Numberer:
 
-    def __init__(self):
+    def __init__(self,start=1):
         self.num2value = {}
         self.value2num = {}
-        self.unkown_idx = 0
-        self.idx = 1
+        self.unkown_idx = start-1
+        self.idx = start
 
     def number(self, value, train):
 
