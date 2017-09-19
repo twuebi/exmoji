@@ -1,30 +1,139 @@
+from enum import IntEnum
+
 import nltk
 import numpy as np
+from lxml import etree
+
+
+class IOB_Type(IntEnum):
+    O = 0
+    I = 1
+    B = 2
 
 
 class Datalist:
 
-    def __init__(self, trained_numberers=None):
+    def __init__(self, trained_datalist=None):
         """
         Creates a new Datalist object.
         if no pretrained numberers are given new numbereres are trained while loading.
 
-        :param trained_numberers: A tuple of (char_nums, word_nums, emo_nums) or None
+        :param trained_numberers: A tuple of (char_nums, word_nums, emo_nums, category_nums) or None
         """
         self.data = []
-        self.train = trained_numberers is None
+        self.train = trained_datalist is None
         if self.train:
             self.char_nums = Numberer()
             self.word_nums = Numberer()
             self.emo_nums = Numberer()
+            self.category_nums = Numberer()
+            self.max_len_char = -1
+            self.max_len_word = -1
+            self.max_len_sentences = -1
+
         else:
-            self.char_nums, self.word_nums, self.emo_nums = trained_numberers
+            self.char_nums = trained_datalist.char_nums
+            self.word_nums = trained_datalist.word_nums
+            self.emo_nums = trained_datalist.emo_nums
+            self.category_nums = trained_datalist.category_nums
+            self.max_len_char = trained_datalist.max_len_char
+            self.max_len_word = trained_datalist.max_len_word
+            self.max_len_sentences = trained_datalist.max_len_sentences
 
-        self.max_len_char = -1
-        self.max_len_word = -1
-        self.max_len_sentences = -1
+    def load_iob(self, path, verbose=False):
+        parser = etree.parse(path)
+        word_tokenizer = nltk.TweetTokenizer()
 
-    def load(self, path):
+        for processed_count, element in enumerate(parser.xpath("//Document"), 1):
+            element_text = element.xpath("text")[0].text
+
+            sentences = [
+                #normalize `` and '' to the original " to allow for accurate sequence tagging
+                [
+                    word.replace('``', '"').replace("''", '"') if word in ("''", "``") else word
+                    for word in nltk.word_tokenize(sentence, language="german")
+                ]
+                for sentence in nltk.sent_tokenize(element_text, language="german")
+            ]
+
+            sentence_lengths = sum(map(len, sentences))
+            if self.train and sentence_lengths > self.max_len_sentences:
+                self.max_len_sentences = sentence_lengths
+
+            numbered_sentences = []
+            for sentence in sentences:
+                numbered_sentences += [
+                    self.word_nums.number(word, self.train) for word in sentence
+                ]
+
+            annotation_indices = []
+            categories = []
+
+            for opinion in element.xpath(".//Opinion"):
+                target = opinion.xpath("@target")[0]
+                category = opinion.xpath("@category")[0]
+                category = category[:category.find("#")]
+                categories.append(category)
+
+                if target == "NULL":
+                    iob_annotation = np.ones(sentence_lengths) * self.category_nums.number((IOB_Type.I, category), self.train)
+                    iob_annotation[0] = self.category_nums.number((IOB_Type.B, category), self.train)
+                    break
+                else:
+                    annotation_indices.append((int(opinion.xpath("@from")[0]), int(opinion.xpath("@to")[0])))
+
+            else:
+                if not annotation_indices:
+                    iob_annotation = np.zeros(sentence_lengths)
+                    self.data.append((numbered_sentences, iob_annotation))
+                    continue
+
+                iob_annotation = []
+
+                text_index = 0
+                indices_index = 0
+                new = True
+
+                for sentence in sentences:
+                    #advance to next sentence
+                    while sentence[0][0] != element_text[text_index]:
+                        text_index += 1
+
+                    for word in sentence:
+                        #advance to next word
+                        while word[0] != element_text[text_index]:
+                            text_index += 1
+
+                        if indices_index < len(annotation_indices) and text_index >= annotation_indices[indices_index][1]:
+                            indices_index += 1
+                            new = True
+
+                        in_field = indices_index < len(annotation_indices) and text_index >= annotation_indices[indices_index][0]
+                        #iob_annotation.append(int(in_field) * (int(new)+1))
+
+                        if in_field:
+                            if new:
+                                new = False
+                                iob_annotation.append(self.category_nums.number((IOB_Type.B, categories[indices_index]), self.train))
+
+                            else:
+                                iob_annotation.append(self.category_nums.number((IOB_Type.I, categories[indices_index]), self.train))
+
+                        else:
+                            iob_annotation.append(self.category_nums.number(IOB_Type.O, self.train))
+
+                        text_index += len(word) - 1
+
+
+                iob_annotation = np.array(iob_annotation)
+
+            self.data.append((numbered_sentences, iob_annotation))
+            if processed_count % 100 == 0:
+                print("Processed", processed_count, "documents", end="\r")
+
+        print("Processed", processed_count, "documents")
+
+    def load_document_sentiments(self, path):
         with open(path) as f:
             for line in f:
                 line = line.replace('\n', '')
@@ -54,7 +163,42 @@ class Datalist:
                     emotion = self.emo_nums.number(parts[3], True)
                     self.data.append((chars, sentences, emotion))
 
-    def create_batches(self, batch_size, mode='indices'):
+    def create_iob_batches(self, batch_size):
+        
+        text_batches = []
+        iob_batches = []
+        document_length_batches = []
+
+        num_batches = len(self.data) // batch_size
+        for start, end in zip(
+            range(0, (num_batches * batch_size) - batch_size + 1, batch_size),
+            range(batch_size, (num_batches * batch_size) + 1, batch_size)
+        ):
+            text_batch = np.zeros((batch_size, self.max_len_sentences))
+            iob_batch = np.zeros((batch_size, self.max_len_sentences, self.category_nums.max()))
+            document_lengths = np.zeros(batch_size)
+
+            for document_index, (document, iob_markup) in enumerate(self.data[start:end]):
+                document_length = len(document)
+                document_lengths[document_index] = max(document_length, self.max_len_sentences)
+                if document_length <= self.max_len_sentences:
+                    text_batch[document_index, :document_length] = document
+                else:
+                    text_batch[document_index] = document[:self.max_len_sentences]
+
+                iob_onehots = np.zeros((self.max_len_sentences, self.category_nums.max()))
+                for i, iob in enumerate(iob_markup[:self.max_len_sentences]):
+                    iob_onehots[i, int(iob)] = 1
+
+                iob_batch[document_index] = iob_onehots
+
+            iob_batches.append(iob_batch)
+            text_batches.append(text_batch)
+            document_length_batches.append(document_lengths)
+
+        return text_batches, iob_batches, document_length_batches
+
+    def create_sentiment_batches(self, batch_size, mode='indices'):
         if mode not in {'indices', 'multi_hot'}:
             raise ValueError("Batch mode must be one of ('indices', 'multi_hot')")
 
@@ -161,8 +305,18 @@ class Numberer:
 
         return self.value2num.get(value, self.unkown_idx)
 
+    def __getitem__(self, item):
+        return self.value2num[item]
+
     def max(self):
         return self.idx
 
     def value(self, num):
         return self.num2value.get(num, None)
+
+
+if __name__ == '__main__':
+    datalist = Datalist()
+    datalist.load_iob("../../../data/train_v1.4.xml")
+    batches = datalist.create_iob_batches(512)
+    print(len(batches[0]))
