@@ -11,6 +11,20 @@ class IOB_Type(IntEnum):
     B = 2
 
 
+def check_index(index, starts, ends):
+    if index in starts:
+        for end, categories in starts[index].items():
+            if end in ends:
+                ends[end] += categories
+            else:
+                ends[end] = categories.copy()
+
+    elif index in ends:
+        del ends[index]
+
+    return ends
+
+
 class Datalist:
 
     def __init__(self, trained_datalist=None):
@@ -66,21 +80,30 @@ class Datalist:
                     self.word_nums.number(word, self.train) for word in sentence
                 ]
 
-            annotation_indices = []
-            categories = []
+            annotation_indices = {}
 
             for opinion in element.xpath(".//Opinion"):
                 target = opinion.xpath("@target")[0]
                 category = opinion.xpath("@category")[0]
+                polarity = opinion.xpath("@polarity")[0]
                 category = category[:category.find("#")]
-                categories.append(category)
 
                 if target == "NULL":
                     iob_annotation = np.ones(sentence_lengths) * self.category_nums.number((IOB_Type.I, category), self.train)
                     iob_annotation[0] = self.category_nums.number((IOB_Type.B, category), self.train)
                     break
                 else:
-                    annotation_indices.append((int(opinion.xpath("@from")[0]), int(opinion.xpath("@to")[0])))
+                    start = int(opinion.xpath("@from")[0])
+                    end = int(opinion.xpath("@to")[0])
+                    annotation = [category, True]
+
+                    if start in annotation_indices:
+                        if end in annotation_indices[start] and not annotation in annotation_indices[start][end]:
+                            annotation_indices[start][end].append(annotation)
+                        else:
+                            annotation_indices[start][end] = [annotation]
+                    else:
+                        annotation_indices[start] = {end : [annotation]}
 
             else:
                 if not annotation_indices:
@@ -91,44 +114,44 @@ class Datalist:
                 iob_annotation = []
 
                 text_index = 0
-                indices_index = 0
+                available_ends = {}
                 new = True
 
                 for sentence in sentences:
                     #advance to next sentence
                     while sentence[0][0] != element_text[text_index]:
+                        available_ends = check_index(text_index, annotation_indices, available_ends)
                         text_index += 1
 
                     for word in sentence:
                         #advance to next word
                         while word[0] != element_text[text_index]:
+                            available_ends = check_index(text_index, annotation_indices, available_ends)
                             text_index += 1
 
-                        if indices_index < len(annotation_indices) and text_index >= annotation_indices[indices_index][1]:
-                            indices_index += 1
-                            new = True
+                        available_ends = check_index(text_index, annotation_indices, available_ends)
+                        iob_annotation.append([])
 
-                        in_field = indices_index < len(annotation_indices) and text_index >= annotation_indices[indices_index][0]
-                        #iob_annotation.append(int(in_field) * (int(new)+1))
-
-                        if in_field:
-                            if new:
-                                new = False
-                                iob_annotation.append(self.category_nums.number((IOB_Type.B, categories[indices_index]), self.train))
-
-                            else:
-                                iob_annotation.append(self.category_nums.number((IOB_Type.I, categories[indices_index]), self.train))
-
+                        if available_ends:
+                            for categories in available_ends.values():
+                                for category in categories:
+                                    if category[1]: #if the annotation doesn't have a begin element yet
+                                        category[1] = False
+                                        iob_annotation[-1].append(self.category_nums.number((IOB_Type.B, category[0]), self.train))
+                                    else:
+                                        iob_annotation[-1].append(self.category_nums.number((IOB_Type.I, category[0]), self.train))
                         else:
-                            iob_annotation.append(self.category_nums.number(IOB_Type.O, self.train))
+                            iob_annotation[-1].append(self.category_nums.number(IOB_Type.O, self.train))
 
                         text_index += len(word) - 1
 
 
-                iob_annotation = np.array(iob_annotation)
+                # TODO: improve multi annotation handling
+                # Only keeps first annotation layer at the moment, discarding overlapping ones
+                iob_annotation = np.array([cat[0] for cat in iob_annotation])
 
             self.data.append((numbered_sentences, iob_annotation))
-            if processed_count % 100 == 0:
+            if verbose and processed_count % 100 == 0:
                 print("Processed", processed_count, "documents", end="\r")
 
         print("Processed", processed_count, "documents")
@@ -316,7 +339,8 @@ class Numberer:
 
 
 if __name__ == '__main__':
+    #Testrun
     datalist = Datalist()
-    datalist.load_iob("../../../data/train_v1.4.xml")
+    datalist.load_iob("../../../data/train_v1.4.xml", verbose=True)
     batches = datalist.create_iob_batches(512)
     print(len(batches[0]))
