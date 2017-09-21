@@ -15,9 +15,9 @@ def check_index(index, starts, ends):
     if index in starts:
         for end, categories in starts[index].items():
             if end in ends:
-                ends[end] += categories
+                ends[end] += [[(index, end, category[0]), category] for category in categories]
             else:
-                ends[end] = categories.copy()
+                ends[end] = [[(index, end, category[0]), category] for category in categories]
 
     elif index in ends:
         del ends[index]
@@ -26,6 +26,11 @@ def check_index(index, starts, ends):
 
 
 class Datalist:
+
+    __slots__ = (
+        "data", "train", "char_nums", "word_nums", "emo_nums", "category_nums", "distance_nums",
+        "max_len_char", "max_len_word", "max_len_sentences"
+    )
 
     def __init__(self, trained_datalist=None):
         """
@@ -41,6 +46,7 @@ class Datalist:
             self.word_nums = Numberer()
             self.emo_nums = Numberer()
             self.category_nums = Numberer()
+            self.distance_nums = Numberer(first_element=0)
             self.max_len_char = -1
             self.max_len_word = -1
             self.max_len_sentences = -1
@@ -50,6 +56,7 @@ class Datalist:
             self.word_nums = trained_datalist.word_nums
             self.emo_nums = trained_datalist.emo_nums
             self.category_nums = trained_datalist.category_nums
+            self.distance_nums = trained_datalist.distance_nums
             self.max_len_char = trained_datalist.max_len_char
             self.max_len_word = trained_datalist.max_len_word
             self.max_len_sentences = trained_datalist.max_len_sentences
@@ -57,6 +64,8 @@ class Datalist:
     def load_iob(self, path, verbose=False):
         parser = etree.parse(path)
         word_tokenizer = nltk.TweetTokenizer()
+
+        self.data = [[], []]
 
         for processed_count, element in enumerate(parser.xpath("//Document"), 1):
             element_text = element.xpath("text")[0].text
@@ -81,6 +90,8 @@ class Datalist:
                 ]
 
             annotation_indices = {}
+            annotation_to_index = {}
+            aspect_polarities = []
 
             for opinion in element.xpath(".//Opinion"):
                 target = opinion.xpath("@target")[0]
@@ -91,29 +102,40 @@ class Datalist:
                 if target == "NULL":
                     iob_annotation = np.ones(sentence_lengths) * self.category_nums.number((IOB_Type.I, category), self.train)
                     iob_annotation[0] = self.category_nums.number((IOB_Type.B, category), self.train)
+                    aspect_locations = np.zeros((1, sentence_lengths))
+                    aspect_polarities.append(self.emo_nums.number(polarity, self.train))
                     break
                 else:
                     start = int(opinion.xpath("@from")[0])
                     end = int(opinion.xpath("@to")[0])
-                    annotation = [category, True]
+                    annotation_category = [category, True]
+                    aspect_polarities.append(self.emo_nums.number(polarity, self.train))
+                    annotation = (start, end, category)
 
                     if start in annotation_indices:
-                        if end in annotation_indices[start] and not annotation in annotation_indices[start][end]:
-                            annotation_indices[start][end].append(annotation)
+                        if end in annotation_indices[start] and not annotation in annotation_to_index:
+                            annotation_indices[start][end].append(annotation_category)
                         else:
-                            annotation_indices[start][end] = [annotation]
+                            annotation_indices[start][end] = [annotation_category]
                     else:
-                        annotation_indices[start] = {end : [annotation]}
+                        annotation_indices[start] = {end : [annotation_category]}
+
+                    if not annotation in annotation_to_index:
+                        annotation_to_index[annotation] = len(annotation_to_index)
 
             else:
                 if not annotation_indices:
                     iob_annotation = np.zeros(sentence_lengths)
-                    self.data.append((numbered_sentences, iob_annotation))
+                    self.data[0].append((numbered_sentences, iob_annotation))
+                    #only adds aspectless samples for iob training
                     continue
 
                 iob_annotation = []
+                #initialize all aspect maps
+                aspect_locations = np.ones((len(annotation_to_index), sentence_lengths))
 
                 text_index = 0
+                word_index = 0
                 available_ends = {}
                 new = True
 
@@ -135,26 +157,49 @@ class Datalist:
                         if available_ends:
                             for categories in available_ends.values():
                                 for category in categories:
-                                    if category[1]: #if the annotation doesn't have a begin element yet
-                                        category[1] = False
-                                        iob_annotation[-1].append(self.category_nums.number((IOB_Type.B, category[0]), self.train))
+                                    #mark aspect locations
+                                    aspect_locations[annotation_to_index[category[0]], word_index] = 0
+
+                                    if category[1][1]: #if the annotation doesn't have a begin element yet
+                                        category[1][1] = False
+                                        iob_annotation[-1].append(self.category_nums.number((IOB_Type.B, category[1][0]), self.train))
                                     else:
-                                        iob_annotation[-1].append(self.category_nums.number((IOB_Type.I, category[0]), self.train))
+                                        iob_annotation[-1].append(self.category_nums.number((IOB_Type.I, category[1][0]), self.train))
                         else:
                             iob_annotation[-1].append(self.category_nums.number(IOB_Type.O, self.train))
 
                         text_index += len(word) - 1
+                        word_index += 1
 
 
                 # TODO: improve multi annotation handling
                 # Only keeps first annotation layer at the moment, discarding overlapping ones
                 iob_annotation = np.array([cat[0] for cat in iob_annotation])
 
-            self.data.append((numbered_sentences, iob_annotation))
+            self.data[0].append((numbered_sentences, iob_annotation))
+            for aspect, polarity in zip(aspect_locations, aspect_polarities):
+                if np.any(aspect == 0):
+                    #get the first and last indices of the array
+                    start, end = np.where(aspect == 0)[0][[0, -1]]
+                    #add distances from the aspect
+                    if start:
+                        aspect[:start] = np.fromiter(
+                            (self.distance_nums.number(d, self.train) for d in np.arange(-start, 0)),
+                            np.int16, start
+                        )
+                    if end < (len(aspect) - 1):
+                        aspect[end + 1:] = np.fromiter(
+                            (self.distance_nums.number(d, self.train) for d in np.arange(1, len(aspect) - end)),
+                            np.int16, len(aspect) - end - 1
+                        )
+
+                self.data[1].append((numbered_sentences, aspect, polarity))
+
             if verbose and processed_count % 100 == 0:
                 print("Processed", processed_count, "documents", end="\r")
 
-        print("Processed", processed_count, "documents")
+        if verbose:
+            print("Processed", processed_count, "documents")
 
     def load_document_sentiments(self, path):
         with open(path) as f:
@@ -192,7 +237,7 @@ class Datalist:
         iob_batches = []
         document_length_batches = []
 
-        num_batches = len(self.data) // batch_size
+        num_batches = len(self.data[0]) // batch_size
         for start, end in zip(
             range(0, (num_batches * batch_size) - batch_size + 1, batch_size),
             range(batch_size, (num_batches * batch_size) + 1, batch_size)
@@ -201,7 +246,7 @@ class Datalist:
             iob_batch = np.zeros((batch_size, self.max_len_sentences, self.category_nums.max()))
             document_lengths = np.zeros(batch_size)
 
-            for document_index, (document, iob_markup) in enumerate(self.data[start:end]):
+            for document_index, (document, iob_markup) in enumerate(self.data[0][start:end]):
                 document_length = len(document)
                 document_lengths[document_index] = max(document_length, self.max_len_sentences)
                 if document_length <= self.max_len_sentences:
@@ -220,6 +265,41 @@ class Datalist:
             document_length_batches.append(document_lengths)
 
         return text_batches, iob_batches, document_length_batches
+
+    def create_aspect_polarity_batches(self, batch_size):
+        text_batches = []
+        aspect_location_batches = []
+        polarity_batches = []
+        document_length_batches = []
+
+        num_batches = len(self.data[1]) // batch_size
+        for start, end in zip(
+            range(0, (num_batches * batch_size) - batch_size + 1, batch_size),
+            range(batch_size, (num_batches * batch_size) + 1, batch_size)
+        ):
+            text_batch = np.zeros((batch_size, self.max_len_sentences))
+            polarity_batch = np.zeros((batch_size, self.emo_nums.max()))
+            aspect_location_batch = np.zeros((batch_size, self.max_len_sentences))
+            document_lengths = np.zeros(batch_size)
+
+            for document_index, (document, aspect_markup, polarity) in enumerate(self.data[1][start:end]):
+                document_length = len(document)
+                document_lengths[document_index] = max(document_length, self.max_len_sentences)
+                polarity_batch[document_index, polarity] = 1
+
+                if document_length <= self.max_len_sentences:
+                    text_batch[document_index, :document_length] = document
+                    aspect_location_batch[document_index, :document_length] = aspect_markup
+                else:
+                    text_batch[document_index] = document[:self.max_len_sentences]
+                    aspect_location_batch[document_index] = aspect_markup[:self.max_len_sentences]
+
+            text_batches.append(text_batch)
+            polarity_batches.append(polarity_batch)
+            aspect_location_batches.append(aspect_location_batch)
+            document_length_batches.append(document_lengths)
+
+        return text_batches, aspect_location_batches, polarity_batches, document_length_batches
 
     def create_sentiment_batches(self, batch_size, mode='indices'):
         if mode not in {'indices', 'multi_hot'}:
@@ -313,11 +393,16 @@ class Datalist:
 
 class Numberer:
 
-    def __init__(self):
-        self.num2value = {}
-        self.value2num = {}
+    def __init__(self, first_element=None):
         self.unkown_idx = 0
-        self.idx = 1
+        if first_element:
+            self.num2value = {1 : first_element}
+            self.value2num = {first_element : 1}
+            self.idx = 2
+        else:
+            self.num2value = {}
+            self.value2num = {}
+            self.idx = 1
 
     def number(self, value, train):
 
@@ -342,5 +427,6 @@ if __name__ == '__main__':
     #Testrun
     datalist = Datalist()
     datalist.load_iob("../../../data/train_v1.4.xml", verbose=True)
-    batches = datalist.create_iob_batches(512)
-    print(len(batches[0]))
+    batches_iob = datalist.create_iob_batches(512)
+    batches_polarity = datalist.create_aspect_polarity_batches(512)
+    print(len(batches_iob[0]), len(batches_polarity[0]))
