@@ -2,6 +2,7 @@ from collections import namedtuple
 from multiprocessing import Process
 
 import tensorflow as tf
+import argparse
 
 from exmoji.nn import Mode, IOBModel, AspectPolarityModel
 from exmoji.processing.loader import Datalist
@@ -158,32 +159,58 @@ def load_aspect_polarity_batches(train_datalist, validation_datalist, batch_size
     return training_batches, validation_batches
 
 
+def parse_arguments():
+    parser = argparse.ArgumentParser(
+        description="a tool for training the exmoji model for extracting and classifying categorical sentiment aspects from documents"
+    )
+    common_parser = argparse.ArgumentParser(add_help=False)
+    common_parser.add_argument('train_file', type=argparse.FileType('r'), help='xml file for training')
+    common_parser.add_argument('validation_file', type=argparse.FileType('r'), help='xml file for validation')
+    common_parser.add_argument('--batch-size', '-b', metavar='N', type=int, default=512, help='size of training and validation batches')
+    common_parser.add_argument('--hidden-neurons', '-n', metavar='N', type=int, default=125, help='number of gru cell neurons')
+    common_parser.add_argument('--input-dropout', metavar='N', type=float, default=1, help='dropout retention rate applied to the input')
+    common_parser.add_argument('--hidden-dropout', metavar='N', type=float, default=1, help='dropout retention rate applied to bi-rnn gru cells')
+    common_parser.add_argument('--learning-rate', '-l', metavar='N', type=float, default=0.001, help='initial learning rate for the Adam optimizer')
+    common_parser.add_argument('--max-epochs', '-m', metavar='N', type=int, default=1000, help='maximum epochs before stopping training')
+
+    subparsers = parser.add_subparsers(dest='model')
+    subparsers.required = True
+
+    iob_parser = subparsers.add_parser('iob', help="trains sentiment aspect annotation", parents=[common_parser])
+    iob_parser.add_argument('--embedding-size', '-e', metavar='N', type=int, default=200, help='size of input word embedding vectors')
+
+    polarity_parser = subparsers.add_parser('polarity', help="trains polarity classification of aspects", parents=[common_parser])
+    polarity_parser.add_argument('--word-embedding-size', '-w', metavar='N', type=int, default=200, help='size of input word embedding vectors')
+    polarity_parser.add_argument('--distance-embedding-size', '-d', metavar='N', type=int, default=10, help='size of distance embedding vectors')
+
+    return parser.parse_args()
+
+
 if __name__ == '__main__':
     from time import sleep
     from itertools import cycle
 
 
-    MODEL_TYPE = "polarity"
-    TRAINING_FILE = "../data/train_v1.4.xml"
-    VALIDATION_FILE = "../data/dev_v1.4.xml"
+    arguments = parse_arguments()
 
     print("Loading Data")
-    train_datalist = Datalist()
-    train_datalist.load_iob(TRAINING_FILE, verbose=True)
-    validation_datalist = Datalist(train_datalist)
-    validation_datalist.load_iob(VALIDATION_FILE, verbose=True)
 
-    if MODEL_TYPE == "iob":
+    train_datalist = Datalist()
+    train_datalist.load_iob(arguments.train_file, verbose=True)
+    validation_datalist = Datalist(train_datalist)
+    validation_datalist.load_iob(arguments.validation_file, verbose=True)
+
+    if arguments.model == "iob":
         config = IOBConfig(
-            batch_size=256,
+            batch_size=arguments.batch_size,
             label_size=train_datalist.category_nums.max(),
             input_size=train_datalist.max_len_sentences,
-            embedding_size=200,
-            hidden_neurons=120,
-            input_dropout=.95,
-            hidden_dropout=.8,
-            initial_learning_rate=.001,
-            max_epochs=100,
+            embedding_size=arguments.embedding_size,
+            hidden_neurons=arguments.hidden_neurons,
+            input_dropout=arguments.input_dropout,
+            hidden_dropout=arguments.hidden_dropout,
+            initial_learning_rate=arguments.learning_rate,
+            max_epochs=arguments.max_epochs,
             vocabulary_size=train_datalist.word_nums.max()
         )
 
@@ -196,16 +223,16 @@ if __name__ == '__main__':
 
     else:
         config = PolarityConfig(
-            batch_size=256,
+            batch_size=arguments.batch_size,
             label_size=train_datalist.emo_nums.max(),
             input_size=train_datalist.max_len_sentences,
-            word_embedding_size=200,
-            distance_embedding_size=10,
-            hidden_neurons=120,
-            input_dropout=.95,
-            hidden_dropout=.8,
-            initial_learning_rate=.001,
-            max_epochs=100,
+            word_embedding_size=arguments.word_embedding_size,
+            distance_embedding_size=arguments.distance_embedding_size,
+            hidden_neurons=arguments.hidden_neurons,
+            input_dropout=arguments.input_dropout,
+            hidden_dropout=arguments.hidden_dropout,
+            initial_learning_rate=arguments.learning_rate,
+            max_epochs=arguments.max_epochs,
             vocabulary_size=train_datalist.word_nums.max(),
             num_distances=train_datalist.distance_nums.max()
         )
