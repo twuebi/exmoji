@@ -246,13 +246,13 @@ class Datalist:
 
             for document_index, (document, iob_markup) in enumerate(self.data[0][start:end]):
                 document_length = len(document)
-                document_lengths[document_index] = max(document_length, self.max_len_sentences)
+                document_lengths[document_index] = min(document_length, self.max_len_sentences)
                 if document_length <= self.max_len_sentences:
                     text_batch[document_index, :document_length] = document
                 else:
                     text_batch[document_index] = document[:self.max_len_sentences]
 
-                for i, iob in enumerate(iob_markup[:max(document_length, self.max_len_sentences)]):
+                for i, iob in enumerate(iob_markup[:min(document_length, self.max_len_sentences)]):
                     iob_batch[document_index, i, iob] = 1
 
             iob_batches.append(iob_batch)
@@ -389,15 +389,15 @@ class Datalist:
 class Numberer:
 
     def __init__(self, first_element=None):
-        self.unkown_idx = 0
+        self.unkown_idx = 1
         if first_element:
-            self.num2value = {1 : first_element}
-            self.value2num = {first_element : 1}
-            self.idx = 2
+            self.num2value = {2 : first_element}
+            self.value2num = {first_element : 2}
+            self.idx = 3
         else:
             self.num2value = {}
             self.value2num = {}
-            self.idx = 1
+            self.idx = 2
 
     def number(self, value, train):
 
