@@ -172,7 +172,10 @@ class Datalist:
 
                 # TODO: improve multi annotation handling
                 # Only keeps first annotation layer at the moment, discarding overlapping ones
-                iob_annotation = np.array([cat[0] for cat in iob_annotation])
+                iob_annotation = np.array(
+                    [cat[0] if len(cat) == 1 else self.category_nums.number(frozenset(cat), self.train) for cat in
+                     iob_annotation])
+
 
             self.data[0].append((numbered_sentences, iob_annotation))
             for aspect, polarity in zip(aspect_locations, aspect_polarities):
