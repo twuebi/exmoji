@@ -4,16 +4,18 @@ from exmoji.nn import Mode
 
 
 class IOBModel():
-
     def __init__(self, config, maximum_sequence_length, mode):
         self.inputs = tf.placeholder(tf.int32, shape=[config.batch_size, config.input_size], name="inputs")
 
         self.document_lengths = tf.placeholder(tf.int32, shape=[config.batch_size], name="lengths")
 
         if mode != mode.PREDICT:
-            self.labels = tf.placeholder(tf.float32, shape=[config.batch_size, maximum_sequence_length, config.label_size], name="labels")
+            self.labels = tf.placeholder(tf.float32,
+                                         shape=[config.batch_size, maximum_sequence_length, config.label_size],
+                                         name="labels")
 
-        embeddings = tf.get_variable("embeddings", shape=[config.vocabulary_size, config.embedding_size])
+        embeddings = tf.get_variable("embeddings", shape=[config.vocabulary_size, config.embedding_size],
+                                     initializer=tf.contrib.layers.xavier_initializer())
         input_embeddings = tf.nn.embedding_lookup(embeddings, self.inputs)
 
         if mode == Mode.TRAIN:
@@ -21,10 +23,18 @@ class IOBModel():
 
         hidden = self._bidirectional_rnn(input_embeddings, config, mode)
 
-        output_weights = tf.get_variable("output_Weight", shape=[hidden.shape[-1], config.label_size])
-        output_bias = tf.get_variable("output_bias", shape=[config.label_size])
+        output_weights = tf.get_variable("output_Weight", shape=[hidden.shape[-1], config.label_size],
+                                         initializer=tf.contrib.layers.xavier_initializer())
+
+        self.rnn_out = output_bias = tf.get_variable("output_bias", shape=[config.label_size],
+                                                     initializer=tf.contrib.layers.xavier_initializer())
+
         # Apply weights on every pair of word representations from the forward and backward propagation
-        logits = tf.einsum('ijk,kl->ijl', hidden, output_weights) + output_bias
+        logits = tf.einsum('ijk,kl->ijl', hidden, output_weights)
+        nz = tf.count_nonzero(logits, 2)
+        greater = tf.greater(nz, 0)
+        greater = tf.expand_dims(greater, -1)
+        logits = output_bias * tf.cast(greater, tf.float32) + logits
 
         if mode != Mode.PREDICT:
             losses = tf.nn.softmax_cross_entropy_with_logits(labels=self.labels, logits=logits)
@@ -40,8 +50,13 @@ class IOBModel():
             # Predicted labels
             labels = tf.argmax(logits, axis=2)
 
-            # Calculates labeled accuracy score
-            self.accuracy = tf.reduce_mean(tf.cast(tf.equal(hp_labels, labels), tf.float32))
+            # Calculates labeled accuracy score#
+            label_equality = tf.cast(tf.equal(hp_labels, labels), tf.float32)
+            label_equality = tf.reduce_sum(label_equality, axis=1)
+            diff = maximum_sequence_length - tf.cast(self.document_lengths, dtype=tf.float32)
+            quant = label_equality - diff
+            denom = (maximum_sequence_length - diff)
+            self.accuracy = tf.reduce_mean(quant / denom)
 
     def _rnn(self, input_embeddings, config, mode):
         outputs, _ = tf.nn.dynamic_rnn(

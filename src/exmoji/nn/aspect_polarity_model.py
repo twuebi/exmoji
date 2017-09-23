@@ -23,7 +23,7 @@ class AspectPolarityModel():
         combined_inputs = tf.concat((embedded_words, embedded_distances), axis=2)
 
         if mode == Mode.TRAIN:
-            input_embeddings = tf.nn.dropout(combined_inputs, config.input_dropout)
+            combined_inputs = tf.nn.dropout(combined_inputs, config.input_dropout)
 
         hidden = self._bidirectional_rnn(combined_inputs, config, mode)
 
