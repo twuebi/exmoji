@@ -100,7 +100,7 @@ class Datalist:
                 category = category[:category.find("#")]
 
                 if target == "NULL":
-                    iob_annotation = np.ones(sentence_lengths) * self.category_nums.number((IOB_Type.I, category), self.train)
+                    iob_annotation = np.ones(sentence_lengths, dtype=np.int32) * self.category_nums.number((IOB_Type.I, category), self.train)
                     iob_annotation[0] = self.category_nums.number((IOB_Type.B, category), self.train)
                     aspect_locations = np.zeros((1, sentence_lengths))
                     aspect_polarities.append(self.emo_nums.number(polarity, self.train))
@@ -124,10 +124,8 @@ class Datalist:
                         annotation_to_index[annotation] = len(annotation_to_index)
 
             else:
+                #ignore irrelevant documents
                 if not annotation_indices:
-                    iob_annotation = np.zeros(sentence_lengths)
-                    self.data[0].append((numbered_sentences, iob_annotation))
-                    #only adds aspectless samples for iob training
                     continue
 
                 iob_annotation = []
@@ -242,9 +240,9 @@ class Datalist:
             range(0, (num_batches * batch_size) - batch_size + 1, batch_size),
             range(batch_size, (num_batches * batch_size) + 1, batch_size)
         ):
-            text_batch = np.zeros((batch_size, self.max_len_sentences))
-            iob_batch = np.zeros((batch_size, self.max_len_sentences, self.category_nums.max()))
-            document_lengths = np.zeros(batch_size)
+            text_batch = np.zeros((batch_size, self.max_len_sentences), dtype=np.int32)
+            iob_batch = np.zeros((batch_size, self.max_len_sentences, self.category_nums.max()), dtype=np.int32)
+            document_lengths = np.zeros(batch_size, dtype=np.int32)
 
             for document_index, (document, iob_markup) in enumerate(self.data[0][start:end]):
                 document_length = len(document)
@@ -254,11 +252,8 @@ class Datalist:
                 else:
                     text_batch[document_index] = document[:self.max_len_sentences]
 
-                iob_onehots = np.zeros((self.max_len_sentences, self.category_nums.max()))
-                for i, iob in enumerate(iob_markup[:self.max_len_sentences]):
-                    iob_onehots[i, int(iob)] = 1
-
-                iob_batch[document_index] = iob_onehots
+                for i, iob in enumerate(iob_markup[:max(document_length, self.max_len_sentences)]):
+                    iob_batch[document_index, i, iob] = 1
 
             iob_batches.append(iob_batch)
             text_batches.append(text_batch)

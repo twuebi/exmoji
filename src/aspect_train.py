@@ -177,7 +177,7 @@ def parse_arguments():
     subparsers.required = True
 
     iob_parser = subparsers.add_parser('iob', help="trains sentiment aspect annotation", parents=[common_parser])
-    iob_parser.add_argument('--embedding-size', '-e', metavar='N', type=int, default=200, help='size of input word embedding vectors')
+    iob_parser.add_argument('--embedding-size', '-w', metavar='N', type=int, default=200, help='size of input word embedding vectors')
 
     polarity_parser = subparsers.add_parser('polarity', help="trains polarity classification of aspects", parents=[common_parser])
     polarity_parser.add_argument('--word-embedding-size', '-w', metavar='N', type=int, default=200, help='size of input word embedding vectors')
