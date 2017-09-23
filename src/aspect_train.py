@@ -1,3 +1,4 @@
+#!/bin/python3
 from collections import namedtuple
 from multiprocessing import Process
 
@@ -164,8 +165,8 @@ def parse_arguments():
         description="a tool for training the exmoji model for extracting and classifying categorical sentiment aspects from documents"
     )
     common_parser = argparse.ArgumentParser(add_help=False)
-    common_parser.add_argument('train_file', type=argparse.FileType('r'), help='xml file for training')
-    common_parser.add_argument('validation_file', type=argparse.FileType('r'), help='xml file for validation')
+    common_parser.add_argument('train_file', type=argparse.FileType('rb'), help='Processed pickle file for training')
+    common_parser.add_argument('validation_file', type=argparse.FileType('rb'), help='Processed pickle file for validation')
     common_parser.add_argument('--batch-size', '-b', metavar='N', type=int, default=512, help='size of training and validation batches')
     common_parser.add_argument('--hidden-neurons', '-n', metavar='N', type=int, default=125, help='number of gru cell neurons')
     common_parser.add_argument('--input-dropout', metavar='N', type=float, default=1, help='dropout retention rate applied to the input')
@@ -189,16 +190,17 @@ def parse_arguments():
 if __name__ == '__main__':
     from time import sleep
     from itertools import cycle
+    import pickle
 
 
     arguments = parse_arguments()
-
+    
     print("Loading Data")
+    with arguments.train_file as in_file:
+        train_datalist = pickle.load(in_file)
 
-    train_datalist = Datalist()
-    train_datalist.load_iob(arguments.train_file, verbose=True)
-    validation_datalist = Datalist(train_datalist)
-    validation_datalist.load_iob(arguments.validation_file, verbose=True)
+    with arguments.validation_file as in_file:
+        validation_datalist = pickle.load(in_file)
 
     if arguments.model == "iob":
         config = IOBConfig(
