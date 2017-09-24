@@ -27,11 +27,6 @@ def check_index(index, starts, ends):
 
 class Datalist:
 
-    __slots__ = (
-        "data", "train", "char_nums", "word_nums", "emo_nums", "category_nums", "distance_nums",
-        "max_len_char", "max_len_word", "max_len_sentences"
-    )
-
     def __init__(self, trained_datalist=None):
         """
         Creates a new Datalist object.
@@ -39,33 +34,169 @@ class Datalist:
 
         :param trained_numberers: A tuple of (char_nums, word_nums, emo_nums, category_nums) or None
         """
-        self.data = []
         self.train = trained_datalist is None
         if self.train:
-            self.char_nums = Numberer()
             self.word_nums = Numberer()
             self.emo_nums = Numberer()
-            self.category_nums = Numberer()
-            self.distance_nums = Numberer(first_element=0)
-            self.max_len_char = -1
-            self.max_len_word = -1
             self.max_len_sentences = -1
 
         else:
-            self.char_nums = trained_datalist.char_nums
             self.word_nums = trained_datalist.word_nums
             self.emo_nums = trained_datalist.emo_nums
-            self.category_nums = trained_datalist.category_nums
-            self.distance_nums = trained_datalist.distance_nums
+            self.max_len_sentences = trained_datalist.max_len_sentences
+
+
+class SentimentDatalist(Datalist):
+
+    def __init__(self, trained_datalist=None):
+        super().__init__(trained_datalist)
+
+        self.data = []
+        if self.train:
+            self.char_nums = Numberer()
+            self.max_len_char = -1
+            self.max_len_word = -1
+        else:
+            self.char_nums = trained_datalist.char_nums
             self.max_len_char = trained_datalist.max_len_char
             self.max_len_word = trained_datalist.max_len_word
-            self.max_len_sentences = trained_datalist.max_len_sentences
+
+    def load_document_sentiments(self, path):
+        with open(path) as f:
+            for line in f:
+                line = line.replace('\n', '')
+
+                if line:
+                    parts = line.split('\t')
+
+                    sents = nltk.sent_tokenize(parts[1], language="german")
+                    if len(sents) > self.max_len_sentences:
+                        self.max_len_sentences = len(sents)
+
+                    chars = [[self.char_nums.number(c, self.train) for c in sent] for sent in sents]
+
+                    max_sentence_chars = max(map(len, chars))
+                    if max_sentence_chars > self.max_len_char:
+                        self.max_len_char = max_sentence_chars
+
+                    sentences = [
+                        [self.word_nums.number(word, self.train) for word in nltk.word_tokenize(sent, language="german")]
+                        for sent in sents
+                    ]
+
+                    max_sentence_len = max(map(len, sentences))
+                    if max_sentence_len > self.max_len_word:
+                        self.max_len_word = max_sentence_len
+
+                    emotion = self.emo_nums.number(parts[3], True)
+                    self.data.append((chars, sentences, emotion))
+
+    def create_sentiment_batches(self, batch_size, mode='indices'):
+        if mode not in {'indices', 'multi_hot'}:
+            raise ValueError("Batch mode must be one of ('indices', 'multi_hot')")
+
+        if mode == 'indices':
+            char_width = self.max_len_char
+            word_width = self.max_len_word
+        else:
+            char_width = self.n_chars
+            word_width = self.n_words
+
+        char_batch = np.zeros((batch_size, self.max_len_sentences, char_width), dtype=np.uint8)
+        word_batch = np.zeros((batch_size, self.max_len_sentences, word_width), dtype=np.uint32)
+        sentence_lengths = np.empty(batch_size, dtype=np.uint32)
+        chars_seq_length = np.zeros((batch_size, self.max_len_sentences), dtype=np.uint32)
+        words_seq_length = np.zeros((batch_size, self.max_len_sentences), dtype=np.uint32)
+        label_batch = np.empty(batch_size, dtype=np.uint8)
+
+        matrices = [[], []]
+        seq_length_batches = [[], [], []]
+        labels = []
+
+        for y, (chars, words, emotion) in enumerate(self):
+            if y and not y % batch_size:
+                #append previous batch data
+                matrices[0].append(char_batch)
+                matrices[1].append(word_batch)
+                seq_length_batches[0].append(chars_seq_length)
+                seq_length_batches[1].append(words_seq_length)
+                seq_length_batches[2].append(sentence_lengths)
+                labels.append(label_batch)
+
+                #create empty representations for the next batch
+                char_batch = np.zeros((batch_size, self.max_len_sentences, char_width), dtype=np.uint8)
+                word_batch = np.zeros((batch_size, self.max_len_sentences, word_width), dtype=np.uint32)
+                sentence_lengths = np.empty(batch_size, dtype=np.uint32)
+                chars_seq_length = np.zeros((batch_size, self.max_len_sentences), dtype=np.uint32)
+                words_seq_length = np.zeros((batch_size, self.max_len_sentences), dtype=np.uint32)
+                label_batch = np.empty(batch_size, dtype=np.uint8)
+
+            chars_lengths = list(map(len, chars))
+            words_lengths = list(map(len, words))
+            sentence_length = len(chars)
+            
+            index = y % batch_size
+            for i, (char, word, char_len, word_len) in enumerate(zip(chars, words, chars_lengths, words_lengths)):
+                if mode == 'indices':
+                    char_batch[index, i, :char_len] = char
+                    word_batch[index, i, :word_len] = word
+                else:
+                    char_batch[index, i, char] = 1
+                    word_batch[index, i, word] = 1
+
+            sentence_lengths[index] = sentence_length
+            chars_seq_length[index, :sentence_length] = chars_lengths
+            words_seq_length[index, :sentence_length] = words_lengths
+            label_batch[index] = emotion
+
+        return matrices, seq_length_batches, labels
+
+    @property
+    def numberers(self):
+        return self.char_nums, self.word_nums, self.emo_nums
+
+    @property
+    def n_chars(self):
+        return self.char_nums.max()
+
+    @property
+    def n_words(self):
+        return self.word_nums.max()
+
+    @property
+    def n_labels(self):
+        return self.emo_nums.max()
+
+    def __iter__(self):
+        for entry in self.data:
+            yield entry
+
+    def __getitem__(self, index):
+        return self.data[index]
+
+    def __len__(self):
+        return len(self.data)
+
+    def __repr__(self):
+        return "<SentimentDatalist with {} rows>".format(len(self.data))
+
+
+class AspectDatalist(Datalist):
+
+    def __init__(self, trained_datalist=None):
+        super().__init__(trained_datalist)
+
+        self.iob_data = []
+        self.polarity_data = []
+        if self.train:
+            self.category_nums = Numberer()
+            self.distance_nums = Numberer(first_element=0)
+        else:
+            self.category_nums = trained_datalist.category_nums
+            self.distance_nums = trained_datalist.distance_nums
 
     def load_iob(self, path, verbose=False):
         parser = etree.parse(path)
-        word_tokenizer = nltk.TweetTokenizer()
-
-        self.data = [[], []]
 
         for processed_count, element in enumerate(parser.xpath("//Document"), 1):
             element_text = element.xpath("text")[0].text
@@ -173,11 +304,11 @@ class Datalist:
                 # TODO: improve multi annotation handling
                 # Only keeps first annotation layer at the moment, discarding overlapping ones
                 iob_annotation = np.array(
-                    [cat[0] if len(cat) == 1 else self.category_nums.number(frozenset(cat), self.train) for cat in
-                     iob_annotation])
+                    [cat[0] if len(cat) == 1 else self.category_nums.number(frozenset(cat), self.train) for cat in iob_annotation]
+                )
 
+            self.iob_data.append((numbered_sentences, iob_annotation))
 
-            self.data[0].append((numbered_sentences, iob_annotation))
             for aspect, polarity in zip(aspect_locations, aspect_polarities):
                 if np.any(aspect == 0):
                     #get the first and last indices of the array
@@ -194,7 +325,7 @@ class Datalist:
                             np.int16, len(aspect) - end - 1
                         )
 
-                self.data[1].append((numbered_sentences, aspect, polarity))
+                self.polarity_data.append((numbered_sentences, aspect, polarity))
 
             if verbose and processed_count % 100 == 0:
                 print("Processed", processed_count, "documents", end="\r")
@@ -202,43 +333,13 @@ class Datalist:
         if verbose:
             print("Processed", processed_count, "documents")
 
-    def load_document_sentiments(self, path):
-        with open(path) as f:
-            for line in f:
-                line = line.replace('\n', '')
-
-                if line:
-                    parts = line.split('\t')
-
-                    sents = nltk.sent_tokenize(parts[1], language="german")
-                    if len(sents) > self.max_len_sentences:
-                        self.max_len_sentences = len(sents)
-
-                    chars = [[self.char_nums.number(c, self.train) for c in sent] for sent in sents]
-
-                    max_sentence_chars = max(map(len, chars))
-                    if max_sentence_chars > self.max_len_char:
-                        self.max_len_char = max_sentence_chars
-
-                    sentences = [
-                        [self.word_nums.number(word, self.train) for word in nltk.word_tokenize(sent, language="german")]
-                        for sent in sents
-                    ]
-
-                    max_sentence_len = max(map(len, sentences))
-                    if max_sentence_len > self.max_len_word:
-                        self.max_len_word = max_sentence_len
-
-                    emotion = self.emo_nums.number(parts[3], True)
-                    self.data.append((chars, sentences, emotion))
-
     def create_iob_batches(self, batch_size):
         
         text_batches = []
         iob_batches = []
         document_length_batches = []
 
-        num_batches = len(self.data[0]) // batch_size
+        num_batches = len(self.iob_data) // batch_size
         for start, end in zip(
             range(0, (num_batches * batch_size) - batch_size + 1, batch_size),
             range(batch_size, (num_batches * batch_size) + 1, batch_size)
@@ -247,7 +348,7 @@ class Datalist:
             iob_batch = np.zeros((batch_size, self.max_len_sentences, self.category_nums.max()), dtype=np.int32)
             document_lengths = np.zeros(batch_size, dtype=np.int32)
 
-            for document_index, (document, iob_markup) in enumerate(self.data[0][start:end]):
+            for document_index, (document, iob_markup) in enumerate(self.iob_data[start:end]):
                 document_length = len(document)
                 document_lengths[document_index] = min(document_length, self.max_len_sentences)
                 if document_length <= self.max_len_sentences:
@@ -270,7 +371,7 @@ class Datalist:
         polarity_batches = []
         document_length_batches = []
 
-        num_batches = len(self.data[1]) // batch_size
+        num_batches = len(self.polarity_data) // batch_size
         for start, end in zip(
             range(0, (num_batches * batch_size) - batch_size + 1, batch_size),
             range(batch_size, (num_batches * batch_size) + 1, batch_size)
@@ -280,7 +381,7 @@ class Datalist:
             aspect_location_batch = np.zeros((batch_size, self.max_len_sentences))
             document_lengths = np.zeros(batch_size)
 
-            for document_index, (document, aspect_markup, polarity) in enumerate(self.data[1][start:end]):
+            for document_index, (document, aspect_markup, polarity) in enumerate(self.polarity_data[start:end]):
                 document_length = len(document)
                 document_lengths[document_index] = max(document_length, self.max_len_sentences)
                 polarity_batch[document_index, polarity] = 1
@@ -299,94 +400,28 @@ class Datalist:
 
         return text_batches, aspect_location_batches, polarity_batches, document_length_batches
 
-    def create_sentiment_batches(self, batch_size, mode='indices'):
-        if mode not in {'indices', 'multi_hot'}:
-            raise ValueError("Batch mode must be one of ('indices', 'multi_hot')")
-
-        if mode == 'indices':
-            char_width = self.max_len_char
-            word_width = self.max_len_word
-        else:
-            char_width = self.n_chars
-            word_width = self.n_words
-
-        char_batch = np.zeros((batch_size, self.max_len_sentences, char_width), dtype=np.uint8)
-        word_batch = np.zeros((batch_size, self.max_len_sentences, word_width), dtype=np.uint32)
-        sentence_lengths = np.empty(batch_size, dtype=np.uint32)
-        chars_seq_length = np.zeros((batch_size, self.max_len_sentences), dtype=np.uint32)
-        words_seq_length = np.zeros((batch_size, self.max_len_sentences), dtype=np.uint32)
-        label_batch = np.empty(batch_size, dtype=np.uint8)
-
-        matrices = [[], []]
-        seq_length_batches = [[], [], []]
-        labels = []
-
-        for y, (chars, words, emotion) in enumerate(self):
-            if y and not y % batch_size:
-                #append previous batch data
-                matrices[0].append(char_batch)
-                matrices[1].append(word_batch)
-                seq_length_batches[0].append(chars_seq_length)
-                seq_length_batches[1].append(words_seq_length)
-                seq_length_batches[2].append(sentence_lengths)
-                labels.append(label_batch)
-
-                #create empty representations for the next batch
-                char_batch = np.zeros((batch_size, self.max_len_sentences, char_width), dtype=np.uint8)
-                word_batch = np.zeros((batch_size, self.max_len_sentences, word_width), dtype=np.uint32)
-                sentence_lengths = np.empty(batch_size, dtype=np.uint32)
-                chars_seq_length = np.zeros((batch_size, self.max_len_sentences), dtype=np.uint32)
-                words_seq_length = np.zeros((batch_size, self.max_len_sentences), dtype=np.uint32)
-                label_batch = np.empty(batch_size, dtype=np.uint8)
-
-            chars_lengths = list(map(len, chars))
-            words_lengths = list(map(len, words))
-            sentence_length = len(chars)
-            
-            index = y % batch_size
-            for i, (char, word, char_len, word_len) in enumerate(zip(chars, words, chars_lengths, words_lengths)):
-                if mode == 'indices':
-                    char_batch[index, i, :char_len] = char
-                    word_batch[index, i, :word_len] = word
-                else:
-                    char_batch[index, i, char] = 1
-                    word_batch[index, i, word] = 1
-
-            sentence_lengths[index] = sentence_length
-            chars_seq_length[index, :sentence_length] = chars_lengths
-            words_seq_length[index, :sentence_length] = words_lengths
-            label_batch[index] = emotion
-
-        return matrices, seq_length_batches, labels
-
-    def __iter__(self):
-        for entry in self.data:
-            yield entry
-
-    def __getitem__(self, index):
-        return self.data[index]
-
-    def __len__(self):
-        return len(self.data)
-
     def __repr__(self):
-        return "<Datalist with {} rows>".format(len(self.data))
+        return "<AspectDatalist with {} iob rows and {} polarity rows>".format(len(self.iob_data), len(self.polarity_data))
 
     @property
     def numberers(self):
-        return self.char_nums, self.word_nums, self.emo_nums
-
-    @property
-    def n_chars(self):
-        return self.char_nums.max()
+        return self.category_nums, self.distance_nums, self.word_nums, self.emo_nums
 
     @property
     def n_words(self):
         return self.word_nums.max()
 
     @property
-    def n_labels(self):
+    def n_polarities(self):
         return self.emo_nums.max()
+
+    @property
+    def n_distances(self):
+        return self.distance_nums.max()
+
+    @property
+    def n_categories(self):
+        return self.category_nums.max()
 
 
 class Numberer:
@@ -419,12 +454,3 @@ class Numberer:
 
     def value(self, num):
         return self.num2value.get(num, None)
-
-
-if __name__ == '__main__':
-    #Testrun
-    datalist = Datalist()
-    datalist.load_iob("../../../data/train_v1.4.xml", verbose=True)
-    batches_iob = datalist.create_iob_batches(512)
-    batches_polarity = datalist.create_aspect_polarity_batches(512)
-    print(len(batches_iob[0]), len(batches_polarity[0]))

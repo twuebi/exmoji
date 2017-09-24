@@ -6,7 +6,6 @@ import tensorflow as tf
 import argparse
 
 from exmoji.nn import Mode, IOBModel, AspectPolarityModel
-from exmoji.processing.loader import Datalist
 
 
 IOBConfig = namedtuple("IOBConfig",
@@ -192,6 +191,8 @@ if __name__ == '__main__':
     from itertools import cycle
     import pickle
 
+    from exmoji.processing.loader import AspectDatalist
+
 
     arguments = parse_arguments()
     
@@ -205,7 +206,7 @@ if __name__ == '__main__':
     if arguments.model == "iob":
         config = IOBConfig(
             batch_size=arguments.batch_size,
-            label_size=train_datalist.category_nums.max(),
+            label_size=train_datalist.n_categories,
             input_size=train_datalist.max_len_sentences,
             embedding_size=arguments.embedding_size,
             hidden_neurons=arguments.hidden_neurons,
@@ -213,7 +214,7 @@ if __name__ == '__main__':
             hidden_dropout=arguments.hidden_dropout,
             initial_learning_rate=arguments.learning_rate,
             max_epochs=arguments.max_epochs,
-            vocabulary_size=train_datalist.word_nums.max()
+            vocabulary_size=train_datalist.n_words
         )
 
         training_batches, validation_batches = load_iob_batches(train_datalist, validation_datalist, config.batch_size)
@@ -226,7 +227,7 @@ if __name__ == '__main__':
     else:
         config = PolarityConfig(
             batch_size=arguments.batch_size,
-            label_size=train_datalist.emo_nums.max(),
+            label_size=train_datalist.n_polarities,
             input_size=train_datalist.max_len_sentences,
             word_embedding_size=arguments.word_embedding_size,
             distance_embedding_size=arguments.distance_embedding_size,
@@ -235,8 +236,8 @@ if __name__ == '__main__':
             hidden_dropout=arguments.hidden_dropout,
             initial_learning_rate=arguments.learning_rate,
             max_epochs=arguments.max_epochs,
-            vocabulary_size=train_datalist.word_nums.max(),
-            num_distances=train_datalist.distance_nums.max()
+            vocabulary_size=train_datalist.n_words,
+            num_distances=train_datalist.n_distances
         )
 
         training_batches, validation_batches = load_aspect_polarity_batches(train_datalist, validation_datalist, config.batch_size)
