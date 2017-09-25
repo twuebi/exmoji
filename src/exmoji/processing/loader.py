@@ -1,6 +1,9 @@
 from enum import IntEnum
+import inspect
+from os import path
 
 import nltk
+from nltk.tag.stanford import StanfordPOSTagger
 import numpy as np
 from lxml import etree
 
@@ -181,21 +184,89 @@ class SentimentDatalist(Datalist):
         return "<SentimentDatalist with {} rows>".format(len(self.data))
 
 
-class AspectDatalist(Datalist):
+class AspectDatalistBase(Datalist):
+
+    STANFORD_PATH = '../../dependencies/stanford_pos/'
+    MODEL_DIR = path.dirname(inspect.getfile(inspect.currentframe()))
+
+    def __init__(self, trained_datalist=None):
+        super().__init__(trained_datalist)
+        
+        #get directory part of the path to this module
+        self.pos_tagger = StanfordPOSTagger(
+            model_filename=path.join(self.MODEL_DIR, self.STANFORD_PATH, 'german-fast.tagger'),
+            path_to_jar= path.join(self.MODEL_DIR, self.STANFORD_PATH, 'stanford-postagger.jar')
+        )
+
+        if self.train:
+            self.category_nums = Numberer()
+            self.polarity_aspect_category_nums = Numberer()
+            self.distance_nums = Numberer(first_element=0)
+            self.pos_tag_nums = Numberer()
+        else:
+            self.category_nums = trained_datalist.category_nums
+            self.polarity_aspect_category_nums = trained_datalist.polarity_aspect_category_nums
+            self.distance_nums = trained_datalist.distance_nums
+            self.pos_tag_nums = trained_datalist.pos_tag_nums
+
+    def process_document_text(self, document):
+        sentences = [
+            #normalize `` and '' to the original " to allow for accurate sequence tagging
+            [
+                word.replace('``', '"').replace("''", '"') if word in ("''", "``") else word
+                for word in nltk.word_tokenize(sentence, language="german")
+            ]
+            for sentence in nltk.sent_tokenize(document, language="german")
+        ]
+        pos_tags = self.pos_tagger.tag_sents(sentences)
+
+        sentence_lengths = sum(map(len, sentences))
+
+        numbered_sentences = []
+        numbered_pos_tags = []
+
+        for sentence, sentence_pos in zip(sentences, pos_tags):
+            numbered_sentences += [
+                self.word_nums.number(word, self.train) for word in sentence
+            ]
+            numbered_pos_tags += [
+                self.pos_tag_nums.number(pos[1], self.train) for pos in sentence_pos
+            ]
+
+        return sentences, numbered_sentences, numbered_pos_tags, sentence_lengths
+
+    @property
+    def numberers(self):
+        return self.category_nums, self.distance_nums, self.word_nums, self.emo_nums, self.pos_tag_nums
+
+    @property
+    def n_pos_tags(self):
+        return self.pos_tag_nums.max
+
+    @property
+    def n_words(self):
+        return self.word_nums.max
+
+    @property
+    def n_polarities(self):
+        return self.emo_nums.max
+
+    @property
+    def n_distances(self):
+        return self.distance_nums.max
+
+    @property
+    def n_categories(self):
+        return self.category_nums.max
+
+
+class AspectDatalist(AspectDatalistBase):
 
     def __init__(self, trained_datalist=None):
         super().__init__(trained_datalist)
 
         self.iob_data = []
         self.polarity_data = []
-        if self.train:
-            self.category_nums = Numberer()
-            self.polarity_aspect_category_nums = Numberer()
-            self.distance_nums = Numberer(first_element=0)
-        else:
-            self.category_nums = trained_datalist.category_nums
-            self.polarity_aspect_category_nums = trained_datalist.polarity_aspect_category_nums
-            self.distance_nums = trained_datalist.distance_nums
 
     def load_iob(self, path, verbose=False):
         parser = etree.parse(path)
@@ -203,24 +274,10 @@ class AspectDatalist(Datalist):
         for processed_count, element in enumerate(parser.xpath("//Document"), 1):
             element_text = element.xpath("text")[0].text
 
-            sentences = [
-                #normalize `` and '' to the original " to allow for accurate sequence tagging
-                [
-                    word.replace('``', '"').replace("''", '"') if word in ("''", "``") else word
-                    for word in nltk.word_tokenize(sentence, language="german")
-                ]
-                for sentence in nltk.sent_tokenize(element_text, language="german")
-            ]
+            sentences, numbered_sentences, numbered_pos_tags, sentence_lengths = self.process_document_text(element_text)
 
-            sentence_lengths = sum(map(len, sentences))
             if self.train and sentence_lengths > self.max_len_sentences:
                 self.max_len_sentences = sentence_lengths
-
-            numbered_sentences = []
-            for sentence in sentences:
-                numbered_sentences += [
-                    self.word_nums.number(word, self.train) for word in sentence
-                ]
 
             annotation_indices = {}
             annotation_to_index = {}
@@ -234,8 +291,7 @@ class AspectDatalist(Datalist):
                 category = category[:category.find("#")]
 
                 if target == "NULL":
-                    iob_annotation = np.ones(sentence_lengths, dtype=np.int32) * self.category_nums.number((IOB_Type.I, category), self.train)
-                    iob_annotation[0] = self.category_nums.number((IOB_Type.B, category), self.train)
+                    iob_annotation = np.ones(sentence_lengths, dtype=np.int32) * self.category_nums.number(IOB_Type.O, self.train)
                     aspect_locations = np.zeros((1, sentence_lengths))
                     aspect_polarities.append(self.emo_nums.number(polarity, self.train))
                     break
@@ -311,7 +367,7 @@ class AspectDatalist(Datalist):
                     [cat[0] if len(cat) == 1 else self.category_nums.number(frozenset(cat), self.train) for cat in iob_annotation]
                 )
 
-            self.iob_data.append((numbered_sentences, iob_annotation))
+            self.iob_data.append((numbered_sentences, iob_annotation, numbered_pos_tags))
 
             for aspect, polarity, category in zip(aspect_locations, aspect_polarities, aspect_categories):
                 if np.any(aspect == 0):
@@ -329,7 +385,7 @@ class AspectDatalist(Datalist):
                             np.int16, len(aspect) - end - 1
                         )
 
-                self.polarity_data.append((numbered_sentences, aspect, polarity, category))
+                self.polarity_data.append((numbered_sentences, aspect, polarity, category, numbered_pos_tags))
 
             if verbose and processed_count % 100 == 0:
                 print("Processed", processed_count, "documents", end="\r")
@@ -340,6 +396,7 @@ class AspectDatalist(Datalist):
     def create_iob_batches(self, batch_size):
         
         text_batches = []
+        pos_batches = []
         iob_batches = []
         document_length_batches = []
 
@@ -349,28 +406,33 @@ class AspectDatalist(Datalist):
             range(batch_size, (num_batches * batch_size) + 1, batch_size)
         ):
             text_batch = np.zeros((batch_size, self.max_len_sentences), dtype=np.int32)
+            pos_batch = np.zeros((batch_size, self.max_len_sentences), dtype=np.int32)
             iob_batch = np.zeros((batch_size, self.max_len_sentences, self.category_nums.max), dtype=np.int32)
             document_lengths = np.zeros(batch_size, dtype=np.int32)
 
-            for document_index, (document, iob_markup) in enumerate(self.iob_data[start:end]):
+            for document_index, (document, iob_markup, pos_tags) in enumerate(self.iob_data[start:end]):
                 document_length = len(document)
                 document_lengths[document_index] = min(document_length, self.max_len_sentences)
                 if document_length <= self.max_len_sentences:
                     text_batch[document_index, :document_length] = document
+                    pos_batch[document_index, :document_length] = pos_tags
                 else:
                     text_batch[document_index] = document[:self.max_len_sentences]
+                    pos_batch[document_index] = pos_tags[:self.max_len_sentences]
 
                 for i, iob in enumerate(iob_markup[:min(document_length, self.max_len_sentences)]):
                     iob_batch[document_index, i, iob] = 1
 
             iob_batches.append(iob_batch)
             text_batches.append(text_batch)
+            pos_batches.append(pos_batch)
             document_length_batches.append(document_lengths)
 
-        return text_batches, iob_batches, document_length_batches
+        return text_batches, iob_batches, document_length_batches, pos_batches
 
     def create_aspect_polarity_batches(self, batch_size):
         text_batches = []
+        pos_batches = []
         aspect_location_batches = []
         polarity_batches = []
         document_length_batches = []
@@ -382,12 +444,13 @@ class AspectDatalist(Datalist):
             range(batch_size, (num_batches * batch_size) + 1, batch_size)
         ):
             text_batch = np.zeros((batch_size, self.max_len_sentences), dtype=np.int32)
+            pos_batch = np.zeros((batch_size, self.max_len_sentences), dtype=np.int32)
             polarity_batch = np.zeros((batch_size, self.emo_nums.max), dtype=np.int32)
             aspect_location_batch = np.zeros((batch_size, self.max_len_sentences), dtype=np.int32)
             document_lengths = np.zeros(batch_size, dtype=np.int32)
             aspect_category_batch = np.zeros(batch_size, dtype=np.int32)
 
-            for document_index, (document, aspect_markup, polarity, aspect_category) in enumerate(self.polarity_data[start:end]):
+            for document_index, (document, aspect_markup, polarity, aspect_category, pos_tags) in enumerate(self.polarity_data[start:end]):
                 document_length = len(document)
                 document_lengths[document_index] = min(document_length, self.max_len_sentences)
                 polarity_batch[document_index, polarity] = 1
@@ -395,41 +458,24 @@ class AspectDatalist(Datalist):
 
                 if document_length <= self.max_len_sentences:
                     text_batch[document_index, :document_length] = document
+                    pos_batch[document_index, :document_length] = pos_tags
                     aspect_location_batch[document_index, :document_length] = aspect_markup
                 else:
                     text_batch[document_index] = document[:self.max_len_sentences]
+                    pos_batch[document_index] = pos_tags[:self.max_len_sentences]
                     aspect_location_batch[document_index] = aspect_markup[:self.max_len_sentences]
 
             text_batches.append(text_batch)
+            pos_batches.append(pos_batch)
             polarity_batches.append(polarity_batch)
             aspect_location_batches.append(aspect_location_batch)
             document_length_batches.append(document_lengths)
             aspect_category_batches.append(aspect_category_batch)
 
-        return text_batches, aspect_location_batches, polarity_batches, document_length_batches, aspect_category_batches
+        return text_batches, aspect_location_batches, polarity_batches, document_length_batches, aspect_category_batches, pos_batches
 
     def __repr__(self):
         return "<AspectDatalist with {} iob rows and {} polarity rows>".format(len(self.iob_data), len(self.polarity_data))
-
-    @property
-    def numberers(self):
-        return self.category_nums, self.distance_nums, self.word_nums, self.emo_nums
-
-    @property
-    def n_words(self):
-        return self.word_nums.max
-
-    @property
-    def n_polarities(self):
-        return self.emo_nums.max
-
-    @property
-    def n_distances(self):
-        return self.distance_nums.max
-
-    @property
-    def n_categories(self):
-        return self.category_nums.max
 
 
 class Numberer:

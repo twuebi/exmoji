@@ -6,8 +6,8 @@ from exmoji.nn import Mode
 class IOBModel():
     def __init__(self, config, maximum_sequence_length, mode):
         self.inputs = tf.placeholder(tf.int32, shape=[config.batch_size, config.input_size], name="inputs")
-
         self.document_lengths = tf.placeholder(tf.int32, shape=[config.batch_size], name="lengths")
+        self.pos = tf.placeholder(tf.int32,shape=[config.batch_size, config.input_size], name="pos")
 
         if mode != mode.PREDICT:
             self.labels = tf.placeholder(tf.float32,
@@ -17,6 +17,12 @@ class IOBModel():
         embeddings = tf.get_variable("embeddings", shape=[config.vocabulary_size, config.embedding_size],
                                      initializer=tf.contrib.layers.xavier_initializer())
         input_embeddings = tf.nn.embedding_lookup(embeddings, self.inputs)
+
+        if config.pos_embedding_size:
+            pos_embeddings = tf.get_variable("pos_embeddings", shape=[config.num_pos, config.pos_embedding_size],
+                                     initializer=tf.contrib.layers.xavier_initializer())
+
+            input_embeddings = tf.concat((input_embeddings, tf.nn.embedding_lookup(pos_embeddings, self.pos)), axis=2)
 
         if mode == Mode.TRAIN:
             input_embeddings = tf.nn.dropout(input_embeddings, config.input_dropout)

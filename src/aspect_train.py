@@ -11,7 +11,7 @@ from exmoji.nn import Mode, IOBModel, AspectPolarityModel
 IOBConfig = namedtuple("IOBConfig",
     "batch_size label_size input_size embedding_size "
     "hidden_neurons hidden_dropout input_dropout initial_learning_rate "
-    "max_epochs vocabulary_size"
+    "max_epochs vocabulary_size pos_embedding_size num_pos"
 )
 
 
@@ -19,7 +19,7 @@ PolarityConfig = namedtuple("PolarityConfig",
     "batch_size label_size input_size num_distances "
     "vocabulary_size word_embedding_size distance_embedding_size max_epochs "
     "hidden_neurons hidden_dropout input_dropout initial_learning_rate "
-    "num_categories category_embedding_size"
+    "num_categories category_embedding_size pos_embedding_size num_pos"
 )
 
 
@@ -38,22 +38,24 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
             validation_loss = 0
             validation_accuracy = 0
 
-            for text_batch, iob_batch, length_batch in zip(*training_batches):
+            for text_batch, iob_batch, length_batch, pos_batch in zip(*training_batches):
                 loss, _ = session.run([train_model.loss, train_model.training_operation],
                     {
                         train_model.inputs : text_batch,
                         train_model.labels : iob_batch,
-                        train_model.document_lengths : length_batch
+                        train_model.document_lengths : length_batch,
+                        train_model.pos : pos_batch
                     }
                 )
                 train_loss += loss
 
-            for text_batch, iob_batch, length_batch, category_batch in zip(*validation_batches):
+            for text_batch, iob_batch, length_batch, pos_batch in zip(*validation_batches):
                 loss, accuracy = session.run([validation_model.loss, validation_model.accuracy],
                     {
                         validation_model.inputs : text_batch,
                         validation_model.labels : iob_batch,
-                        validation_model.document_lengths : length_batch
+                        validation_model.document_lengths : length_batch,
+                        validation_model.pos : pos_batch
                     }
                 )
                 validation_loss += loss
@@ -86,26 +88,28 @@ def train_aspect_polarity_model(training_batches, validation_batches, training_m
             validation_loss = 0
             validation_accuracy = 0
 
-            for text_batch, annotation_batch, polarity_batch, length_batch, category_batch in zip(*training_batches):
+            for text_batch, annotation_batch, polarity_batch, length_batch, category_batch, pos_batch in zip(*training_batches):
                 loss, _ = session.run([train_model.loss, train_model.training_operation],
                     {
                         train_model.words : text_batch,
                         train_model.distances : annotation_batch,
                         train_model.labels : polarity_batch,
                         train_model.document_lengths : length_batch,
-                        train_model.categories : category_batch
+                        train_model.categories : category_batch,
+                        train_model.pos : pos_batch
                     }
                 )
                 train_loss += loss
 
-            for text_batch, annotation_batch, polarity_batch, length_batch, category_batch in zip(*validation_batches):
+            for text_batch, annotation_batch, polarity_batch, length_batch, category_batch, pos_batch in zip(*validation_batches):
                 loss, accuracy, equalities = session.run([validation_model.loss, validation_model.accuracy, validation_model.equal_counts],
                     {
                         validation_model.words : text_batch,
                         validation_model.distances : annotation_batch,
                         validation_model.labels : polarity_batch,
                         validation_model.document_lengths : length_batch,
-                        validation_model.categories : category_batch
+                        validation_model.categories : category_batch,
+                        validation_model.pos : pos_batch
                     }
                 )
                 validation_loss += loss
@@ -175,14 +179,21 @@ def parse_arguments():
     common_parser.add_argument('--hidden-dropout', metavar='N', type=float, default=1, help='dropout retention rate applied to bi-rnn gru cells')
     common_parser.add_argument('--learning-rate', '-l', metavar='N', type=float, default=0.001, help='initial learning rate for the Adam optimizer')
     common_parser.add_argument('--max-epochs', '-m', metavar='N', type=int, default=1000, help='maximum epochs before stopping training')
+    common_parser.add_argument('--pos-embedding-size', '-p', metavar='N', type=int, default=10, help='size of part of speech (POS) embedding vectors - 0 to disable')
 
     subparsers = parser.add_subparsers(dest='model')
     subparsers.required = True
 
-    iob_parser = subparsers.add_parser('iob', help="trains sentiment aspect annotation", parents=[common_parser])
+    iob_parser = subparsers.add_parser(
+        'iob', help="trains sentiment aspect annotation", parents=[common_parser],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
     iob_parser.add_argument('--embedding-size', '-w', metavar='N', type=int, default=200, help='size of input word embedding vectors')
 
-    polarity_parser = subparsers.add_parser('polarity', help="trains polarity classification of aspects", parents=[common_parser])
+    polarity_parser = subparsers.add_parser(
+        'polarity', help="trains polarity classification of aspects", parents=[common_parser],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
     polarity_parser.add_argument('--word-embedding-size', '-w', metavar='N', type=int, default=200, help='size of input word embedding vectors')
     polarity_parser.add_argument('--distance-embedding-size', '-d', metavar='N', type=int, default=10, help='size of distance embedding vectors - 0 to disable')
     polarity_parser.add_argument('--category-embedding-size', '-c', metavar='N', type=int, default=10, help='size of category embedding vectors - 0 to disable')
@@ -217,7 +228,9 @@ if __name__ == '__main__':
             hidden_dropout=arguments.hidden_dropout,
             initial_learning_rate=arguments.learning_rate,
             max_epochs=arguments.max_epochs,
-            vocabulary_size=train_datalist.n_words
+            vocabulary_size=train_datalist.n_words,
+            pos_embedding_size=arguments.pos_embedding_size,
+            num_pos=train_datalist.pos_tag_nums.max
         )
 
         training_batches, validation_batches = load_iob_batches(train_datalist, validation_datalist, config.batch_size)
@@ -242,7 +255,9 @@ if __name__ == '__main__':
             vocabulary_size=train_datalist.n_words,
             num_distances=train_datalist.n_distances,
             num_categories=train_datalist.polarity_aspect_category_nums.max,
-            category_embedding_size=arguments.category_embedding_size
+            category_embedding_size=arguments.category_embedding_size,
+            pos_embedding_size=arguments.pos_embedding_size,
+            num_pos=train_datalist.pos_tag_nums.max
         )
 
         training_batches, validation_batches = load_aspect_polarity_batches(train_datalist, validation_datalist, config.batch_size)

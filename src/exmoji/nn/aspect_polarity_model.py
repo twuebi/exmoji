@@ -9,6 +9,7 @@ class AspectPolarityModel():
         self.words = tf.placeholder(tf.int32, shape=[config.batch_size, config.input_size], name="words")
         self.distances = tf.placeholder(tf.int32, shape=[config.batch_size, config.input_size], name="distances") 
         self.categories = tf.placeholder(tf.int32, shape=[config.batch_size], name="categories")
+        self.pos = tf.placeholder(tf.int32,shape=[config.batch_size, config.input_size], name="pos")
 
         self.document_lengths = tf.placeholder(tf.int32, shape=[config.batch_size], name="lengths")
 
@@ -19,6 +20,9 @@ class AspectPolarityModel():
         if config.distance_embedding_size:
             distance_embeddings = tf.get_variable("distance_embeddings", shape=[config.num_distances, config.distance_embedding_size])
             embedded_distances = tf.nn.embedding_lookup(distance_embeddings, self.distances)
+        if config.pos_embedding_size:
+            pos_embeddings = tf.get_variable("pos_embeddings", shape=[config.num_pos, config.pos_embedding_size])
+            embedded_pos_tags = tf.nn.embedding_lookup(pos_embeddings, self.pos)
         if config.category_embedding_size:
             category_embeddings = tf.get_variable("category_embeddings", shape=[config.num_categories, config.category_embedding_size])
             embedded_categories = tf.nn.embedding_lookup(category_embeddings, self.categories)
@@ -30,6 +34,9 @@ class AspectPolarityModel():
         if config.distance_embedding_size:
             # Concatenate word and distance embeddings elementwise
             combined_inputs = tf.concat((embedded_words, embedded_distances), axis=2)
+        if config.pos_embedding_size:
+            # Dito for POS tags
+            combined_inputs = tf.concat((embedded_pos_tags, embedded_distances), axis=2)
 
         if mode == Mode.TRAIN:
             combined_inputs = tf.nn.dropout(combined_inputs, config.input_dropout)
