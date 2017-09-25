@@ -8,6 +8,7 @@ class AspectPolarityModel():
     def __init__(self, config, maximum_sequence_length, mode):
         self.words = tf.placeholder(tf.int32, shape=[config.batch_size, config.input_size], name="words")
         self.distances = tf.placeholder(tf.int32, shape=[config.batch_size, config.input_size], name="distances") 
+        self.categories = tf.placeholder(tf.int32, shape=[config.batch_size], name="categories")
 
         self.document_lengths = tf.placeholder(tf.int32, shape=[config.batch_size], name="lengths")
 
@@ -15,17 +16,28 @@ class AspectPolarityModel():
             self.labels = tf.placeholder(tf.float32, shape=[config.batch_size, config.label_size], name="labels")
 
         word_embeddings = tf.get_variable("word_embeddings", shape=[config.vocabulary_size, config.word_embedding_size])
-        distance_embeddings = tf.get_variable("distance_embeddings", shape=[config.num_distances, config.distance_embedding_size])
+        if config.distance_embedding_size:
+            distance_embeddings = tf.get_variable("distance_embeddings", shape=[config.num_distances, config.distance_embedding_size])
+            embedded_distances = tf.nn.embedding_lookup(distance_embeddings, self.distances)
+        if config.category_embedding_size:
+            category_embeddings = tf.get_variable("category_embeddings", shape=[config.num_categories, config.category_embedding_size])
+            embedded_categories = tf.nn.embedding_lookup(category_embeddings, self.categories)
 
         embedded_words = tf.nn.embedding_lookup(word_embeddings, self.words)
-        embedded_distances = tf.nn.embedding_lookup(distance_embeddings, self.distances)
-        #concatenate word and distance embeddings elementwise
-        combined_inputs = tf.concat((embedded_words, embedded_distances), axis=2)
+
+        combined_inputs = embedded_words
+
+        if config.distance_embedding_size:
+            # Concatenate word and distance embeddings elementwise
+            combined_inputs = tf.concat((embedded_words, embedded_distances), axis=2)
 
         if mode == Mode.TRAIN:
             combined_inputs = tf.nn.dropout(combined_inputs, config.input_dropout)
 
         hidden = self._bidirectional_rnn(combined_inputs, config, mode)
+        
+        if config.category_embedding_size:
+            hidden = tf.concat((hidden, embedded_categories), axis=1)
 
         output_weights = tf.get_variable("output_Weight", shape=[hidden.shape[-1], config.label_size])
         output_bias = tf.get_variable("output_bias", shape=[config.label_size])

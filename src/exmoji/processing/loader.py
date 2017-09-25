@@ -157,15 +157,15 @@ class SentimentDatalist(Datalist):
 
     @property
     def n_chars(self):
-        return self.char_nums.max()
+        return self.char_nums.max
 
     @property
     def n_words(self):
-        return self.word_nums.max()
+        return self.word_nums.max
 
     @property
     def n_labels(self):
-        return self.emo_nums.max()
+        return self.emo_nums.max
 
     def __iter__(self):
         for entry in self.data:
@@ -190,9 +190,11 @@ class AspectDatalist(Datalist):
         self.polarity_data = []
         if self.train:
             self.category_nums = Numberer()
+            self.polarity_aspect_category_nums = Numberer()
             self.distance_nums = Numberer(first_element=0)
         else:
             self.category_nums = trained_datalist.category_nums
+            self.polarity_aspect_category_nums = trained_datalist.polarity_aspect_category_nums
             self.distance_nums = trained_datalist.distance_nums
 
     def load_iob(self, path, verbose=False):
@@ -223,6 +225,7 @@ class AspectDatalist(Datalist):
             annotation_indices = {}
             annotation_to_index = {}
             aspect_polarities = []
+            aspect_categories = []
 
             for opinion in element.xpath(".//Opinion"):
                 target = opinion.xpath("@target")[0]
@@ -253,6 +256,7 @@ class AspectDatalist(Datalist):
 
                     if not annotation in annotation_to_index:
                         annotation_to_index[annotation] = len(annotation_to_index)
+                        aspect_categories.append(self.polarity_aspect_category_nums.number(category, self.train))
 
             else:
                 #ignore irrelevant documents
@@ -309,7 +313,7 @@ class AspectDatalist(Datalist):
 
             self.iob_data.append((numbered_sentences, iob_annotation))
 
-            for aspect, polarity in zip(aspect_locations, aspect_polarities):
+            for aspect, polarity, category in zip(aspect_locations, aspect_polarities, aspect_categories):
                 if np.any(aspect == 0):
                     #get the first and last indices of the array
                     start, end = np.where(aspect == 0)[0][[0, -1]]
@@ -325,7 +329,7 @@ class AspectDatalist(Datalist):
                             np.int16, len(aspect) - end - 1
                         )
 
-                self.polarity_data.append((numbered_sentences, aspect, polarity))
+                self.polarity_data.append((numbered_sentences, aspect, polarity, category))
 
             if verbose and processed_count % 100 == 0:
                 print("Processed", processed_count, "documents", end="\r")
@@ -345,7 +349,7 @@ class AspectDatalist(Datalist):
             range(batch_size, (num_batches * batch_size) + 1, batch_size)
         ):
             text_batch = np.zeros((batch_size, self.max_len_sentences), dtype=np.int32)
-            iob_batch = np.zeros((batch_size, self.max_len_sentences, self.category_nums.max()), dtype=np.int32)
+            iob_batch = np.zeros((batch_size, self.max_len_sentences, self.category_nums.max), dtype=np.int32)
             document_lengths = np.zeros(batch_size, dtype=np.int32)
 
             for document_index, (document, iob_markup) in enumerate(self.iob_data[start:end]):
@@ -370,21 +374,24 @@ class AspectDatalist(Datalist):
         aspect_location_batches = []
         polarity_batches = []
         document_length_batches = []
+        aspect_category_batches = []
 
         num_batches = len(self.polarity_data) // batch_size
         for start, end in zip(
             range(0, (num_batches * batch_size) - batch_size + 1, batch_size),
             range(batch_size, (num_batches * batch_size) + 1, batch_size)
         ):
-            text_batch = np.zeros((batch_size, self.max_len_sentences))
-            polarity_batch = np.zeros((batch_size, self.emo_nums.max()))
-            aspect_location_batch = np.zeros((batch_size, self.max_len_sentences))
-            document_lengths = np.zeros(batch_size)
+            text_batch = np.zeros((batch_size, self.max_len_sentences), dtype=np.int32)
+            polarity_batch = np.zeros((batch_size, self.emo_nums.max), dtype=np.int32)
+            aspect_location_batch = np.zeros((batch_size, self.max_len_sentences), dtype=np.int32)
+            document_lengths = np.zeros(batch_size, dtype=np.int32)
+            aspect_category_batch = np.zeros(batch_size, dtype=np.int32)
 
-            for document_index, (document, aspect_markup, polarity) in enumerate(self.polarity_data[start:end]):
+            for document_index, (document, aspect_markup, polarity, aspect_category) in enumerate(self.polarity_data[start:end]):
                 document_length = len(document)
-                document_lengths[document_index] = max(document_length, self.max_len_sentences)
+                document_lengths[document_index] = min(document_length, self.max_len_sentences)
                 polarity_batch[document_index, polarity] = 1
+                aspect_category_batch[document_index] = aspect_category
 
                 if document_length <= self.max_len_sentences:
                     text_batch[document_index, :document_length] = document
@@ -397,8 +404,9 @@ class AspectDatalist(Datalist):
             polarity_batches.append(polarity_batch)
             aspect_location_batches.append(aspect_location_batch)
             document_length_batches.append(document_lengths)
+            aspect_category_batches.append(aspect_category_batch)
 
-        return text_batches, aspect_location_batches, polarity_batches, document_length_batches
+        return text_batches, aspect_location_batches, polarity_batches, document_length_batches, aspect_category_batches
 
     def __repr__(self):
         return "<AspectDatalist with {} iob rows and {} polarity rows>".format(len(self.iob_data), len(self.polarity_data))
@@ -409,19 +417,19 @@ class AspectDatalist(Datalist):
 
     @property
     def n_words(self):
-        return self.word_nums.max()
+        return self.word_nums.max
 
     @property
     def n_polarities(self):
-        return self.emo_nums.max()
+        return self.emo_nums.max
 
     @property
     def n_distances(self):
-        return self.distance_nums.max()
+        return self.distance_nums.max
 
     @property
     def n_categories(self):
-        return self.category_nums.max()
+        return self.category_nums.max
 
 
 class Numberer:
@@ -449,6 +457,7 @@ class Numberer:
     def __getitem__(self, item):
         return self.value2num[item]
 
+    @property
     def max(self):
         return self.idx
 
