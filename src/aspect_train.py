@@ -9,7 +9,7 @@ from exmoji.nn import Mode, IOBModel, AspectPolarityModel
 
 
 IOBConfig = namedtuple("IOBConfig",
-    "batch_size label_size input_size embedding_size "
+    "batch_size label_size input_size word_embedding_size "
     "hidden_neurons hidden_dropout input_dropout initial_learning_rate "
     "max_epochs vocabulary_size pos_embedding_size num_pos"
 )
@@ -179,7 +179,7 @@ def parse_arguments():
     common_parser.add_argument('--hidden-dropout', metavar='N', type=float, default=1, help='dropout retention rate applied to bi-rnn gru cells')
     common_parser.add_argument('--learning-rate', '-l', metavar='N', type=float, default=0.001, help='initial learning rate for the Adam optimizer')
     common_parser.add_argument('--max-epochs', '-m', metavar='N', type=int, default=1000, help='maximum epochs before stopping training')
-    common_parser.add_argument('--pos-embedding-size', '-p', metavar='N', type=int, default=10, help='size of part of speech (POS) embedding vectors - 0 to disable')
+    common_parser.add_argument('--pos-embedding-size', '-p', metavar='N', type=int, default=0, help='size of part of speech (POS) embedding vectors - 0 to disable')
 
     subparsers = parser.add_subparsers(dest='model')
     subparsers.required = True
@@ -188,7 +188,7 @@ def parse_arguments():
         'iob', help="trains sentiment aspect annotation", parents=[common_parser],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    iob_parser.add_argument('--embedding-size', '-w', metavar='N', type=int, default=200, help='size of input word embedding vectors')
+    iob_parser.add_argument('--word-embedding-size', '-w', metavar='N', type=int, default=200, help='size of input word embedding vectors')
 
     polarity_parser = subparsers.add_parser(
         'polarity', help="trains polarity classification of aspects", parents=[common_parser],
@@ -222,7 +222,7 @@ if __name__ == '__main__':
             batch_size=arguments.batch_size,
             label_size=train_datalist.n_categories,
             input_size=train_datalist.max_len_sentences,
-            embedding_size=arguments.embedding_size,
+            word_embedding_size=arguments.word_embedding_size,
             hidden_neurons=arguments.hidden_neurons,
             input_dropout=arguments.input_dropout,
             hidden_dropout=arguments.hidden_dropout,

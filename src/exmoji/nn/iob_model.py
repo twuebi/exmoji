@@ -14,7 +14,7 @@ class IOBModel():
                                          shape=[config.batch_size, maximum_sequence_length, config.label_size],
                                          name="labels")
 
-        embeddings = tf.get_variable("embeddings", shape=[config.vocabulary_size, config.embedding_size],
+        embeddings = tf.get_variable("embeddings", shape=[config.vocabulary_size, config.word_embedding_size],
                                      initializer=tf.contrib.layers.xavier_initializer())
         input_embeddings = tf.nn.embedding_lookup(embeddings, self.inputs)
 
@@ -43,7 +43,7 @@ class IOBModel():
         logits = output_bias * tf.cast(greater, tf.float32) + logits
 
         if mode != Mode.PREDICT:
-            losses = tf.nn.softmax_cross_entropy_with_logits(labels=self.labels, logits=logits)
+            losses = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.labels, logits=logits)
             self.loss = tf.reduce_sum(losses)
 
         if mode == Mode.TRAIN:
@@ -51,18 +51,18 @@ class IOBModel():
 
         elif mode == Mode.VALIDATE:
             # Highest probability labels of the gold standard data.
-            hp_labels = tf.argmax(self.labels, axis=2)
+            hp_labels = self.labels
 
             # Predicted labels
-            labels = tf.argmax(logits, axis=2)
+            labels = tf.round(logits)
 
             # Calculates labeled accuracy score#
             label_equality = tf.cast(tf.equal(hp_labels, labels), tf.float32)
             label_equality = tf.reduce_sum(label_equality, axis=1)
             diff = maximum_sequence_length - tf.cast(self.document_lengths, dtype=tf.float32)
-            quant = label_equality - diff
+            quant = label_equality - tf.expand_dims(diff, -1)
             denom = (maximum_sequence_length - diff)
-            self.accuracy = tf.reduce_mean(quant / denom)
+            self.accuracy = tf.reduce_mean(quant / tf.expand_dims(denom, -1))
 
     def _rnn(self, input_embeddings, config, mode):
         outputs, _ = tf.nn.dynamic_rnn(
