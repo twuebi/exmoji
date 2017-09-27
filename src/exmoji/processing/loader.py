@@ -228,15 +228,16 @@ class AspectDatalistBase(Datalist):
         numbered_sentences = []
         numbered_pos_tags = []
 
+        #for sentence, sentence_pos in zip(sentences, pos_tags):
         for sentence in sentences:
             numbered_sentences += [
                 self.word_nums.number(word, self.train) for word in sentence
             ]
-            # numbered_pos_tags += [
+            #numbered_pos_tags += [
             #    self.pos_tag_nums.number(pos[1], self.train) for pos in sentence_pos
-            # ]
+            #]
 
-        # TODO: debug
+        #TODO: debug
         numbered_pos_tags = [0] * sentence_lengths
         return sentences, numbered_sentences, numbered_pos_tags, sentence_lengths, single_lengths
 
@@ -296,7 +297,7 @@ class AspectDatalist(AspectDatalistBase):
                 category = category[:category.find("#")]
 
                 if target == "NULL":
-                    iob_annotation = np.ones(sentence_lengths, dtype=np.int32) * self.category_nums.number(IOB_Type.O, self.train)
+                    iob_annotation = np.ones(sentence_lengths, dtype=np.int32).reshape((-1, 1)) * self.category_nums.number(IOB_Type.O, self.train)
                     aspect_locations = np.zeros((1, sentence_lengths))
                     aspect_polarities.append(self.emo_nums.number(polarity, self.train))
                     break
@@ -368,9 +369,9 @@ class AspectDatalist(AspectDatalistBase):
 
                 # TODO: improve multi annotation handling
                 # Only keeps first annotation layer at the moment, discarding overlapping ones
-                iob_annotation = np.array(
-                    [cat[0] if len(cat) == 1 else self.category_nums.number(frozenset(cat), self.train) for cat
-                     in iob_annotation])
+                #iob_annotation = np.array(
+                #    [cat[0] if len(cat) == 1 else self.category_nums.number(frozenset(cat), self.train) for cat in iob_annotation]
+                #)
 
             self.iob_data.append((numbered_sentences, iob_annotation, numbered_pos_tags, single_lengths, sentence_lengths))
 
@@ -411,7 +412,6 @@ class AspectDatalist(AspectDatalistBase):
             range(0, (num_batches * batch_size) - batch_size + 1, batch_size),
             range(batch_size, (num_batches * batch_size) + 1, batch_size)
         ):
-
             text_batch = np.zeros((batch_size, self.max_len_sentences), dtype=np.int32)
             pos_batch = np.zeros((batch_size, self.max_len_sentences), dtype=np.int32)
             iob_batch = np.zeros((batch_size, self.max_len_sentences, self.category_nums.max), dtype=np.int32)

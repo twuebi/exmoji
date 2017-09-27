@@ -17,7 +17,7 @@ class IOBModel():
                                          shape=[config.batch_size, config.input_size, config.label_size],
                                          name="labels")
 
-        embeddings = tf.get_variable("embeddings", shape=[config.vocabulary_size, config.embedding_size],
+        embeddings = tf.get_variable("embeddings", shape=[config.vocabulary_size, config.word_embedding_size],
                                      initializer=tf.contrib.layers.xavier_initializer())
         input_embeddings = tf.nn.embedding_lookup(embeddings, self.inputs)
 
@@ -30,11 +30,10 @@ class IOBModel():
         if mode == Mode.TRAIN:
             input_embeddings = tf.nn.dropout(input_embeddings, config.input_dropout)
 
-        hidden = self._bidirectional_rnn(input_embeddings, config, mode, self.fw_initial_state, self.bw_initial_state)
+        hidden = self._bidirectional_rnn(input_embeddings, config, mode)
 
         output_weights = tf.get_variable("output_Weight", shape=[hidden.shape[-1], config.label_size],
                                          initializer=tf.contrib.layers.xavier_initializer())
-
 
         self.rnn_out = output_bias = tf.get_variable("output_bias", shape=[config.label_size],
                                                      initializer=tf.contrib.layers.xavier_initializer())
@@ -47,7 +46,7 @@ class IOBModel():
         logits = output_bias * tf.cast(greater_exp, tf.float32) + logits
 
         if mode != Mode.PREDICT:
-            losses = tf.nn.softmax_cross_entropy_with_logits(labels=self.labels, logits=logits)
+            losses = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.labels, logits=logits)
             self.loss = tf.reduce_sum(losses)
 
         if mode == Mode.TRAIN:
@@ -55,19 +54,19 @@ class IOBModel():
 
         elif mode == Mode.VALIDATE:
             # Highest probability labels of the gold standard data.
-            hp_labels = tf.argmax(self.labels, axis=2)
+            hp_labels = self.labels
 
             # Predicted labels
-            labels = tf.argmax(logits, axis=2)
+            labels = tf.round(logits)
 
             # Calculates labeled accuracy score#
             label_equality = tf.boolean_mask(tf.cast(tf.equal(hp_labels, labels), tf.float32),tf.greater(tf.count_nonzero(greater,axis=1),0))
             masked_lengths = tf.boolean_mask(tf.cast(self.document_lengths, dtype=tf.float32),tf.greater(tf.count_nonzero(greater,axis=1),0))
             label_equality = tf.reduce_sum(label_equality, axis=1)
             diff = maximum_sequence_length - masked_lengths
-            quant = label_equality - diff
-            denom = denom =(maximum_sequence_length - diff)
-            self.accuracy = tf.reduce_mean(quant / denom)
+            quant = label_equality - tf.expand_dims(diff, -1)
+            denom = (maximum_sequence_length - diff)
+            self.accuracy = tf.reduce_mean(quant / tf.expand_dims(denom, -1))
 
     def _rnn(self, input_embeddings, config, mode):
         outputs, _ = tf.nn.dynamic_rnn(

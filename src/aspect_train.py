@@ -5,11 +5,12 @@ from multiprocessing import Process
 import tensorflow as tf
 import numpy as np
 import argparse
+
 from exmoji.nn import Mode, IOBModel, AspectPolarityModel
 
 
 IOBConfig = namedtuple("IOBConfig",
-    "batch_size label_size input_size embedding_size "
+    "batch_size label_size input_size word_embedding_size "
     "hidden_neurons hidden_dropout input_dropout initial_learning_rate "
     "max_epochs vocabulary_size pos_embedding_size num_pos mini_batch_size"
 )
@@ -83,6 +84,7 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
             train_loss /= len(training_batches[0])
             validation_loss /= len(validation_batches[0])
             validation_accuracy /= len(validation_batches[0])
+
             print(
                 "epoch {} | train loss: {:.4f} | validation loss: {:.4f} | Accuracy: {:.2f}%".format(
                     epoch, train_loss, validation_loss, validation_accuracy * 100
@@ -142,6 +144,7 @@ def train_aspect_polarity_model(training_batches, validation_batches, training_m
                 )
             )
 
+
 def print_process(text, dots=4):
     clear_text = " " * (len(text) + dots)
     for num_dots in cycle(range(dots)):
@@ -161,7 +164,7 @@ def load_iob_batches(train_datalist, validation_datalist, batch_size, mini_batch
         #reraise exception - will still execute finally
         raise
     finally:
-         loading.terminate()
+        loading.terminate()
 
     return training_batches, validation_batches
 
@@ -193,9 +196,9 @@ def parse_arguments():
     common_parser.add_argument('--hidden-neurons', '-n', metavar='N', type=int, default=125, help='number of gru cell neurons')
     common_parser.add_argument('--input-dropout', metavar='N', type=float, default=1, help='dropout retention rate applied to the input')
     common_parser.add_argument('--hidden-dropout', metavar='N', type=float, default=1, help='dropout retention rate applied to bi-rnn gru cells')
-    common_parser.add_argument('--learning-rate', '-l', metavar='N', type=float, default=0.01, help='initial learning rate for the Adam optimizer')
+    common_parser.add_argument('--learning-rate', '-l', metavar='N', type=float, default=0.001, help='initial learning rate for the Adam optimizer')
     common_parser.add_argument('--max-epochs', '-m', metavar='N', type=int, default=1000, help='maximum epochs before stopping training')
-    common_parser.add_argument('--pos-embedding-size', '-p', metavar='N', type=int, default=10, help='size of part of speech (POS) embedding vectors - 0 to disable')
+    common_parser.add_argument('--pos-embedding-size', '-p', metavar='N', type=int, default=0, help='size of part of speech (POS) embedding vectors - 0 to disable')
 
     subparsers = parser.add_subparsers(dest='model')
     subparsers.required = True
@@ -204,7 +207,7 @@ def parse_arguments():
         'iob', help="trains sentiment aspect annotation", parents=[common_parser],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    iob_parser.add_argument('--embedding-size', '-w', metavar='N', type=int, default=200, help='size of input word embedding vectors')
+    iob_parser.add_argument('--word-embedding-size', '-w', metavar='N', type=int, default=200, help='size of input word embedding vectors')
     iob_parser.add_argument('--mini-batch-size', '-mb', metavar='N', type=int, default=150, help='size of minibatches')
 
     polarity_parser = subparsers.add_parser(
@@ -240,7 +243,7 @@ if __name__ == '__main__':
             label_size=train_datalist.n_categories,
             mini_batch_size=arguments.mini_batch_size,
             input_size=arguments.mini_batch_size if arguments.mini_batch_size else train_datalist.max_len_sentences,
-            embedding_size=arguments.embedding_size,
+            word_embedding_size=arguments.embedding_size,
             hidden_neurons=arguments.hidden_neurons,
             input_dropout=arguments.input_dropout,
             hidden_dropout=arguments.hidden_dropout,
