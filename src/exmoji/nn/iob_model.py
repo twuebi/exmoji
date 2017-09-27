@@ -57,7 +57,7 @@ class IOBModel():
             hp_labels = self.labels
 
             # Predicted labels
-            labels = tf.round(logits)
+            labels = tf.round(tf.nn.sigmoid(logits))
 
             # Calculates labeled accuracy score#
             label_equality = tf.boolean_mask(tf.cast(tf.equal(hp_labels, labels), tf.float32),tf.greater(tf.count_nonzero(greater,axis=1),0))
