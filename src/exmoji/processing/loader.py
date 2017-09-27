@@ -454,30 +454,30 @@ class AspectDatalist(AspectDatalistBase):
         for x,(single_breakpoints,single_length ,single_text, single_iob, single_pos) \
                 in enumerate(zip(ceiled_cum_sum, sentence_lengths , text, iob, pos)):
 
+            lengths = np.zeros(shape=[max(n_splits+1,sentence_ratios.shape[1])])
+            lengths[:len(single_length)] = single_length
+
             unique_breaks = np.unique(single_breakpoints)
+            breaks = np.zeros(shape=[n_splits+1],dtype=np.int32)
 
             for num in range(1,len(unique_breaks)):
-                single_breakpoints[unique_breaks[num-1]:unique_breaks[num]] \
-                    = np.arange(unique_breaks[num-1],unique_breaks[num])
-                single_breakpoints[unique_breaks[num]:] = unique_breaks[num]
 
-            single_breakpoints[-1] = n_splits
+                breaks[unique_breaks[num-1]:unique_breaks[num]] = np.arange(unique_breaks[num-1],unique_breaks[num])
+                breaks[unique_breaks[num]:] = unique_breaks[num]
+
+                breaks[-1] = n_splits
 
             for i in range(0, n_splits):
-                start = single_breakpoints[i]
-                end = single_breakpoints[i+1]
+                start = breaks[i]
+                end = breaks[i+1]
 
-                sums = np.sum(single_length[start:end])
-
-                copy_until = int(sums)
+                copy_until = int(np.sum(lengths[start:end]))
 
                 diff = copy_until - max_length
                 if diff > 0:
                     copy_until = max_length
-                    single_length[start] -= diff
-                    single_length[end] += diff
-
-                copy_until = int(copy_until)
+                    lengths[start] -= diff
+                    lengths[end] += diff
 
                 text_new[i,x,:copy_until] = single_text[i*copy_until:(i+1)*copy_until]
                 iob_new[i,x,:copy_until] = single_iob[i*copy_until:(i+1)*copy_until]
