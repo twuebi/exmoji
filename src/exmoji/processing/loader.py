@@ -1,12 +1,17 @@
 from enum import IntEnum
 import inspect
+import pickle
+import sys
 from os import path
 from operator import itemgetter
 
 import nltk
-from nltk.tag.stanford import StanfordPOSTagger
 import numpy as np
 from lxml import etree
+
+MODEL_DIR = path.dirname(inspect.getfile(inspect.currentframe()))
+sys.path.append(path.join(MODEL_DIR, "../../dependencies/"))
+from ClassifierBasedGermanTagger.ClassifierBasedGermanTagger import ClassifierBasedGermanTagger
 
 
 class IOB_Type(IntEnum):
@@ -188,17 +193,14 @@ class SentimentDatalist(Datalist):
 
 class AspectDatalistBase(Datalist):
 
-    STANFORD_PATH = '../../dependencies/stanford_pos/'
-    MODEL_DIR = path.dirname(inspect.getfile(inspect.currentframe()))
+    RELATIVE_POS_PATH = '../../dependencies/nltk_german_classifier_data.pickle'
 
     def __init__(self, trained_datalist=None):
         super().__init__(trained_datalist)
         
         #get directory part of the path to this module
-        self.pos_tagger = StanfordPOSTagger(
-            model_filename=path.join(self.MODEL_DIR, self.STANFORD_PATH, 'german-fast.tagger'),
-            path_to_jar= path.join(self.MODEL_DIR, self.STANFORD_PATH, 'stanford-postagger.jar')
-        )
+        with open(path.join(MODEL_DIR, self.RELATIVE_POS_PATH), "rb") as model_file:
+            self.pos_tagger = pickle.load(model_file)
 
         if self.train:
             self.category_nums = Numberer()
@@ -220,7 +222,7 @@ class AspectDatalistBase(Datalist):
             ]
             for sentence in nltk.sent_tokenize(document, language="german")
         ]
-        #pos_tags = self.pos_tagger.tag_sents(sentences)
+        pos_tags = self.pos_tagger.tag_sents(sentences)
 
         single_lengths = [len(sentence) for sentence in sentences]
         sentence_lengths = sum(single_lengths)
@@ -228,17 +230,14 @@ class AspectDatalistBase(Datalist):
         numbered_sentences = []
         numbered_pos_tags = []
 
-        #for sentence, sentence_pos in zip(sentences, pos_tags):
-        for sentence in sentences:
+        for sentence, sentence_pos in zip(sentences, pos_tags):
             numbered_sentences += [
                 self.word_nums.number(word, self.train) for word in sentence
             ]
-            #numbered_pos_tags += [
-            #    self.pos_tag_nums.number(pos[1], self.train) for pos in sentence_pos
-            #]
+            numbered_pos_tags += [
+                self.pos_tag_nums.number(pos[1], self.train) for pos in sentence_pos
+            ]
 
-        #TODO: debug
-        numbered_pos_tags = [0] * sentence_lengths
         return sentences, numbered_sentences, numbered_pos_tags, sentence_lengths, single_lengths
 
     @property
