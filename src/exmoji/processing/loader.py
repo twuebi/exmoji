@@ -241,6 +241,109 @@ class AspectDatalistBase(Datalist):
         numbered_pos_tags = [0] * sentence_lengths
         return sentences, numbered_sentences, numbered_pos_tags, sentence_lengths, single_lengths
 
+    def create_iob_batches(self, iob_data, batch_size, mini_batch_size, mini_batch=True, bucketing=True, predict=False):
+        if bucketing:
+            iob_data = sorted(iob_data, key=itemgetter(-1),reverse=True)
+        text_batches = []
+        pos_batches = []
+        if not predict:
+            iob_batches = []
+        document_length_batches = []
+
+        num_batches = len(iob_data) // batch_size
+        for start, end in zip(
+            range(0, (num_batches * batch_size) - batch_size + 1, batch_size),
+            range(batch_size, (num_batches * batch_size) + 1, batch_size)
+        ):
+            text_batch = np.zeros((batch_size, self.max_len_sentences), dtype=np.int32)
+            pos_batch = np.zeros((batch_size, self.max_len_sentences), dtype=np.int32)
+
+            if not predict:
+                iob_batch = np.zeros((batch_size, self.max_len_sentences, self.category_nums.max), dtype=np.int32)
+
+            document_lengths = np.zeros(batch_size, dtype=np.int32)
+            sentence_lengths = np.zeros([batch_size,self.max_amount_sentences])
+
+            for document_index, (document, iob_markup, pos_tags,single_length,document_length) in enumerate(iob_data[start:end]):
+                sentence_lengths[document_index][:len(single_length)] = single_length
+                document_lengths[document_index] = min(document_length, self.max_len_sentences)
+
+                if document_length <= self.max_len_sentences:
+                    text_batch[document_index, :document_length] = document
+                    pos_batch[document_index, :document_length] = pos_tags
+                else:
+                    text_batch[document_index] = document[:self.max_len_sentences]
+                    pos_batch[document_index] = pos_tags[:self.max_len_sentences]
+
+                if not predict:
+                    for i, iob in enumerate(iob_markup[:min(document_length, self.max_len_sentences)]):
+                        if iob: #if there are aspect annotations on this token
+                            iob_batch[document_index, i, iob] = 1
+
+            if mini_batch:
+                if predict:
+                    iob_batch = None
+                iob_batch, text_batch, pos_batch, document_lengths = self.create_mini_batch(batch_size, iob_batch,text_batch,pos_batch,sentence_lengths,mini_batch_size)
+
+
+            if not predict:
+                iob_batches.append(iob_batch)
+            text_batches.append(text_batch)
+            pos_batches.append(pos_batch)
+            document_length_batches.append(document_lengths)
+
+        return (text_batches, iob_batches, document_length_batches, pos_batches) if not predict else (text_batches, document_length_batches, pos_batches)
+
+
+    def create_mini_batch(self,batch_size ,iob, text, pos, sentence_lengths,max_length):
+        prediction = iob is None
+
+        sentence_ratios = (sentence_lengths / max_length).squeeze()
+        ceiled_cum_sum = np.insert(np.ceil(np.cumsum(sentence_ratios, axis=1)).astype(np.int32),0,0,axis=1)
+
+        n_splits = np.amax(ceiled_cum_sum)
+        if not prediction:
+            iob_new = np.zeros([n_splits, batch_size, max_length, self.category_nums.max], dtype=np.int32)
+        text_new = np.zeros([n_splits, batch_size, max_length], dtype=np.int64)
+        pos_new = np.zeros([n_splits, batch_size, max_length], dtype=np.int32)
+        length_new = np.zeros([n_splits, batch_size], dtype=np.int32)
+
+        for x,(single_breakpoints, single_length, single_text, single_iob, single_pos) \
+                in enumerate(zip(ceiled_cum_sum, sentence_lengths , text, iob, pos)):
+
+            lengths = np.zeros(shape=[max(n_splits+1,sentence_ratios.shape[1])])
+            lengths[:len(single_length)] = single_length
+
+            unique_breaks = np.unique(single_breakpoints)
+            breaks = np.zeros(shape=[n_splits+1],dtype=np.int32)
+
+            for num in range(1,len(unique_breaks)):
+
+                breaks[unique_breaks[num-1]:unique_breaks[num]] = np.arange(unique_breaks[num-1],unique_breaks[num])
+                breaks[unique_breaks[num]:] = unique_breaks[num]
+
+                breaks[-1] = n_splits
+
+            for i in range(0, n_splits):
+                start = breaks[i]
+                end = breaks[i+1]
+
+                copy_until = int(np.sum(lengths[start:end]))
+
+                diff = copy_until - max_length
+                if diff > 0:
+                    copy_until = max_length
+                    lengths[start] -= diff
+                    lengths[end] += diff
+
+                text_new[i,x,:copy_until] = single_text[i*copy_until:(i+1)*copy_until]
+                if not prediction:
+                    iob_new[i,x,:copy_until] = single_iob[i*copy_until:(i+1)*copy_until]
+                pos_new[i,x,:copy_until] = single_pos[i*copy_until:(i+1)*copy_until]
+                length_new[i,x] = copy_until
+
+        return iob_new, text_new, pos_new, length_new
+
     @property
     def numberers(self):
         return self.category_nums, self.distance_nums, self.word_nums, self.emo_nums, self.pos_tag_nums
@@ -390,94 +493,6 @@ class AspectDatalist(AspectDatalistBase):
         if verbose:
             print("Processed", processed_count, "documents")
 
-    def create_iob_batches(self, batch_size, mini_batch_size, mini_batch=True, bucketing=True):
-        if bucketing:
-            self.iob_data = sorted(self.iob_data, key=itemgetter(-1),reverse=True)
-        text_batches = []
-        pos_batches = []
-        iob_batches = []
-        document_length_batches = []
-
-        num_batches = len(self.iob_data) // batch_size
-        for start, end in zip(
-            range(0, (num_batches * batch_size) - batch_size + 1, batch_size),
-            range(batch_size, (num_batches * batch_size) + 1, batch_size)
-        ):
-            text_batch = np.zeros((batch_size, self.max_len_sentences), dtype=np.int32)
-            pos_batch = np.zeros((batch_size, self.max_len_sentences), dtype=np.int32)
-            iob_batch = np.zeros((batch_size, self.max_len_sentences, self.category_nums.max), dtype=np.int32)
-            document_lengths = np.zeros(batch_size, dtype=np.int32)
-            sentence_lengths = np.zeros([batch_size,self.max_amount_sentences])
-
-            for document_index, (document, iob_markup, pos_tags,single_length,document_length) in enumerate(self.iob_data[start:end]):
-                sentence_lengths[document_index][:len(single_length)] = single_length
-                document_lengths[document_index] = min(document_length, self.max_len_sentences)
-                if document_length <= self.max_len_sentences:
-                    text_batch[document_index, :document_length] = document
-                    pos_batch[document_index, :document_length] = pos_tags
-                else:
-                    text_batch[document_index] = document[:self.max_len_sentences]
-                    pos_batch[document_index] = pos_tags[:self.max_len_sentences]
-
-                for i, iob in enumerate(iob_markup[:min(document_length, self.max_len_sentences)]):
-                    if iob: #if there are aspect annotations on this token
-                        iob_batch[document_index, i, iob] = 1
-
-            if mini_batch:
-                iob_batch, text_batch, pos_batch, document_lengths = self.create_mini_batch(batch_size, iob_batch,text_batch,pos_batch,sentence_lengths,mini_batch_size)
-            iob_batches.append(iob_batch)
-            text_batches.append(text_batch)
-            pos_batches.append(pos_batch)
-            document_length_batches.append(document_lengths)
-
-        return text_batches, iob_batches, document_length_batches, pos_batches
-
-    def create_mini_batch(self,batch_size ,iob, text, pos, sentence_lengths,max_length):
-
-        sentence_ratios = (sentence_lengths / max_length).squeeze()
-        ceiled_cum_sum = np.insert(np.ceil(np.cumsum(sentence_ratios, axis=1)).astype(np.int32),0,0,axis=1)
-
-        n_splits = np.amax(ceiled_cum_sum)
-
-        iob_new = np.zeros([n_splits, batch_size, max_length, self.category_nums.max], dtype=np.int32)
-        text_new = np.zeros([n_splits, batch_size, max_length], dtype=np.int64)
-        pos_new = np.zeros([n_splits, batch_size, max_length], dtype=np.int32)
-        length_new = np.zeros([n_splits, batch_size], dtype=np.int32)
-
-        for x,(single_breakpoints,single_length ,single_text, single_iob, single_pos) \
-                in enumerate(zip(ceiled_cum_sum, sentence_lengths , text, iob, pos)):
-
-            lengths = np.zeros(shape=[max(n_splits+1,sentence_ratios.shape[1])])
-            lengths[:len(single_length)] = single_length
-
-            unique_breaks = np.unique(single_breakpoints)
-            breaks = np.zeros(shape=[n_splits+1],dtype=np.int32)
-
-            for num in range(1,len(unique_breaks)):
-
-                breaks[unique_breaks[num-1]:unique_breaks[num]] = np.arange(unique_breaks[num-1],unique_breaks[num])
-                breaks[unique_breaks[num]:] = unique_breaks[num]
-
-                breaks[-1] = n_splits
-
-            for i in range(0, n_splits):
-                start = breaks[i]
-                end = breaks[i+1]
-
-                copy_until = int(np.sum(lengths[start:end]))
-
-                diff = copy_until - max_length
-                if diff > 0:
-                    copy_until = max_length
-                    lengths[start] -= diff
-                    lengths[end] += diff
-
-                text_new[i,x,:copy_until] = single_text[i*copy_until:(i+1)*copy_until]
-                iob_new[i,x,:copy_until] = single_iob[i*copy_until:(i+1)*copy_until]
-                pos_new[i,x,:copy_until] = single_pos[i*copy_until:(i+1)*copy_until]
-                length_new[i,x] = copy_until
-
-        return iob_new, text_new, pos_new, length_new
 
 
     def create_aspect_polarity_batches(self, batch_size):

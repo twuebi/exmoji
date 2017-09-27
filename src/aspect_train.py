@@ -121,7 +121,7 @@ def train_aspect_polarity_model(training_batches, validation_batches, training_m
                 train_loss += loss
 
             for text_batch, annotation_batch, polarity_batch, length_batch, category_batch, pos_batch in zip(*validation_batches):
-                loss, accuracy, equalities = session.run([validation_model.loss, validation_model.accuracy, validation_model.equal_counts],
+                loss, accuracy, equalities = session.run([validation_model.loss, validation_model.accuracy ,validation_model.equal_counts],
                     {
                         validation_model.words : text_batch,
                         validation_model.distances : annotation_batch,
@@ -158,8 +158,8 @@ def load_iob_batches(train_datalist, validation_datalist, batch_size, mini_batch
     loading.start()
     # Makes sure printing process terminates even if something goes wrong
     try:
-        training_batches = train_datalist.create_iob_batches(batch_size, mini_batch_size)
-        validation_batches = validation_datalist.create_iob_batches(batch_size, mini_batch_size)
+        training_batches = train_datalist.create_iob_batches(train_datalist.iob_data,batch_size, mini_batch_size)
+        validation_batches = validation_datalist.create_iob_batches(validation_datalist.iob_data,batch_size, mini_batch_size)
     except:
         #reraise exception - will still execute finally
         raise
