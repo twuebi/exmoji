@@ -64,7 +64,7 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
                 fw_init_state = np.zeros([config.batch_size, config.hidden_neurons])
                 bw_init_state = np.zeros([config.batch_size, config.hidden_neurons])
                 for text, iob, length, pos in zip(mini_text_batch, mini_iob_batch, mini_length_batch, mini_pos_batch):
-                    (fw_init_state, bw_init_state),loss, accuracy, equalse ,diff, denom, quant = session.run([validation_model.state,validation_model.loss, validation_model.accuracy,validation_model.label_equality ,validation_model.diff,validation_model.denom,validation_model.quant],
+                    (fw_init_state, bw_init_state),loss, accuracy = session.run([validation_model.state,validation_model.loss, validation_model.accuracy],
                         {
                             validation_model.fw_initial_state : fw_init_state,
                             validation_model.bw_initial_state: bw_init_state,
@@ -226,9 +226,6 @@ if __name__ == '__main__':
     from itertools import cycle
     import pickle
 
-    from exmoji.processing.loader import AspectDatalist
-
-
     arguments = parse_arguments()
     
     with arguments.train_file as in_file:
@@ -243,7 +240,7 @@ if __name__ == '__main__':
             label_size=train_datalist.n_categories,
             mini_batch_size=arguments.mini_batch_size,
             input_size=arguments.mini_batch_size if arguments.mini_batch_size else train_datalist.max_len_sentences,
-            word_embedding_size=arguments.embedding_size,
+            word_embedding_size=arguments.word_embedding_size,
             hidden_neurons=arguments.hidden_neurons,
             input_dropout=arguments.input_dropout,
             hidden_dropout=arguments.hidden_dropout,

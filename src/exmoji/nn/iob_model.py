@@ -30,7 +30,7 @@ class IOBModel():
         if mode == Mode.TRAIN:
             input_embeddings = tf.nn.dropout(input_embeddings, config.input_dropout)
 
-        hidden = self._bidirectional_rnn(input_embeddings, config, mode)
+        hidden = self._bidirectional_rnn(input_embeddings, config, mode, self.fw_initial_state, self.bw_initial_state)
 
         output_weights = tf.get_variable("output_Weight", shape=[hidden.shape[-1], config.label_size],
                                          initializer=tf.contrib.layers.xavier_initializer())
