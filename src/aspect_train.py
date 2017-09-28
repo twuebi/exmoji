@@ -42,10 +42,15 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
             for mini_text_batch, mini_iob_batch, mini_length_batch, mini_pos_batch in zip(*training_batches):
                 fw_init_state = np.zeros([config.batch_size,config.hidden_neurons])
                 bw_init_state = np.zeros([config.batch_size,config.hidden_neurons])
+
                 mini_batch_loss = 0
                 for text, iob, length, pos in zip(mini_text_batch, mini_iob_batch, mini_length_batch, mini_pos_batch):
+                    ratio = np.sum( np.count_nonzero(iob,axis=0), axis=0) / (np.sum(length))
+                    ratio[np.argwhere(ratio == 0)] += 1
+                    ratio = np.ones(shape=41)/ratio
                     (fw_init_state,bw_init_state),loss, _ = session.run([train_model.state,train_model.loss, train_model.training_operation],
                         {
+                            train_model.ratio : ratio,
                             train_model.fw_initial_state : fw_init_state,
                             train_model.bw_initial_state: bw_init_state,
                             train_model.inputs : text,
@@ -57,15 +62,27 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
                     mini_batch_loss += loss
                 mini_batch_loss /= len(mini_text_batch)
                 train_loss += mini_batch_loss
-
+            correct_classes = np.zeros([3,41])
+            true_negatives = np.zeros([41])
+            false_negatives = np.zeros([41])
             for mini_text_batch, mini_iob_batch, mini_length_batch, mini_pos_batch in zip(*validation_batches):
                 mini_batch_accuracy = 0
                 mini_batch_loss = 0
                 fw_init_state = np.zeros([config.batch_size, config.hidden_neurons])
                 bw_init_state = np.zeros([config.batch_size, config.hidden_neurons])
                 for text, iob, length, pos in zip(mini_text_batch, mini_iob_batch, mini_length_batch, mini_pos_batch):
-                    (fw_init_state, bw_init_state),loss, accuracy = session.run([validation_model.state,validation_model.loss, validation_model.accuracy],
+                    ratio = np.ones([config.label_size])
+                    (fw_init_state, bw_init_state),loss, accuracy, pred, equalse, logits,\
+                    true_pos,\
+                    false_pos,\
+                    true_neg,\
+                    false_neg = session.run([validation_model.state,validation_model.loss, validation_model.accuracy, validation_model.labels1,validation_model.label_equality,validation_model.logits,
+                                                                                                                 validation_model.true_pos,
+                                                                                                                 validation_model.false_pos,
+                                                                                                                 validation_model.true_neg,
+                                                                                                                 validation_model.false_neg],
                         {
+                            validation_model.ratio : ratio,
                             validation_model.fw_initial_state : fw_init_state,
                             validation_model.bw_initial_state: bw_init_state,
                             validation_model.inputs : text,
@@ -74,6 +91,11 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
                             validation_model.pos : pos
                         }
                     )
+                    correct_classes[0] += equalse[0]
+                    correct_classes[1] += np.sum(np.reshape(true_pos,[-1,41]),axis=0)
+                    correct_classes[2] += equalse[1]
+                    true_negatives += np.sum(np.reshape(true_neg,[-1,41]),axis=0)
+                    false_negatives += np.sum(np.reshape(false_neg,[-1,41]),axis=0)
                     mini_batch_loss += loss
                     mini_batch_accuracy += accuracy
 
@@ -84,7 +106,13 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
             train_loss /= len(training_batches[0])
             validation_loss /= len(validation_batches[0])
             validation_accuracy /= len(validation_batches[0])
-
+            print()
+            print("precision: ")
+            print(correct_classes[1].astype(np.int64) / correct_classes[2].astype(np.int64))
+            print()
+            print("recall: ")
+            print(correct_classes[1].astype(np.int64) / (false_negatives+correct_classes[1].astype(np.int64)))
+            print()
             print(
                 "epoch {} | train loss: {:.4f} | validation loss: {:.4f} | Accuracy: {:.2f}%".format(
                     epoch, train_loss, validation_loss, validation_accuracy * 100
@@ -198,7 +226,7 @@ def parse_arguments():
     common_parser.add_argument('--hidden-dropout', metavar='N', type=float, default=1, help='dropout retention rate applied to bi-rnn gru cells')
     common_parser.add_argument('--learning-rate', '-l', metavar='N', type=float, default=0.001, help='initial learning rate for the Adam optimizer')
     common_parser.add_argument('--max-epochs', '-m', metavar='N', type=int, default=1000, help='maximum epochs before stopping training')
-    common_parser.add_argument('--pos-embedding-size', '-p', metavar='N', type=int, default=0, help='size of part of speech (POS) embedding vectors - 0 to disable')
+    common_parser.add_argument('--pos-embedding-size', '-p', metavar='N', type=int, default=10, help='size of part of speech (POS) embedding vectors - 0 to disable')
 
     subparsers = parser.add_subparsers(dest='model')
     subparsers.required = True

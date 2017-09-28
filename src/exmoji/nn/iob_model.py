@@ -1,7 +1,7 @@
 import tensorflow as tf
 
 from exmoji.nn import Mode
-
+from tensorflow.python.layers.core import Dense
 
 class IOBModel():
     def __init__(self, config, maximum_sequence_length, mode):
@@ -32,36 +32,53 @@ class IOBModel():
 
         hidden = self._bidirectional_rnn(input_embeddings, config, mode, self.fw_initial_state, self.bw_initial_state)
 
+
         output_weights = tf.get_variable("output_Weight", shape=[hidden.shape[-1], config.label_size],
                                          initializer=tf.contrib.layers.xavier_initializer())
 
-        self.rnn_out = output_bias = tf.get_variable("output_bias", shape=[config.label_size],
+        output_bias = tf.get_variable("output_bias", shape=[config.label_size],
                                                      initializer=tf.contrib.layers.xavier_initializer())
+
+
 
         # Apply weights on every pair of word representations from the forward and backward propagation
         logits = tf.einsum('ijk,kl->ijl', hidden, output_weights)
         nz = tf.count_nonzero(logits, 2)
         greater = tf.greater(nz, 0)
         greater_exp = tf.expand_dims(greater, -1)
-        logits = output_bias * tf.cast(greater_exp, tf.float32) + logits
+        self.logits = output_bias * tf.cast(greater_exp, tf.float32) + logits
 
         if mode != Mode.PREDICT:
-            losses = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.labels, logits=logits)
+            self.ratio = tf.placeholder(tf.float32,shape=[config.label_size],name="class_weights")
+            losses = tf.nn.weighted_cross_entropy_with_logits(targets=self.labels,pos_weight=self.ratio, logits=logits)
             self.loss = tf.reduce_sum(losses)
 
         if mode == Mode.TRAIN:
-            self.training_operation = tf.train.AdamOptimizer(config.initial_learning_rate).minimize(losses)
+            self.training_operation = tf.train.AdagradOptimizer(config.initial_learning_rate).minimize(losses)
 
         elif mode == Mode.VALIDATE:
             # Highest probability labels of the gold standard data.
             hp_labels = self.labels
 
             # Predicted labels
-            labels = tf.round(tf.nn.sigmoid(logits))
+            self.labels1  = labels = tf.round(tf.nn.sigmoid(logits))
 
             # Calculates labeled accuracy score#
+            self.label_equality = (tf.reduce_sum(tf.count_nonzero(hp_labels,axis=0),axis=0),tf.reduce_sum(tf.count_nonzero(labels,axis=0),axis=0))
+
+            #self.true_pos = tf.boolean_mask(tf.cast(tf.equal(hp_labels, labels), tf.float32), tf.greater(labels, 0))
+
+            self.true_pos = tf.logical_and(tf.greater(hp_labels,0),tf.greater(labels,0))
+            self.false_pos = tf.logical_and(tf.less(hp_labels,1),tf.greater(labels,0))
+
+            self.true_neg = tf.logical_and(tf.less(hp_labels, 1), tf.less(labels, 1))
+            self.false_neg = tf.logical_and(tf.greater(hp_labels, 0), tf.less(labels, 1))
+
+
             label_equality = tf.boolean_mask(tf.cast(tf.equal(hp_labels, labels), tf.float32),tf.greater(tf.count_nonzero(greater,axis=1),0))
             masked_lengths = tf.boolean_mask(tf.cast(self.document_lengths, dtype=tf.float32),tf.greater(tf.count_nonzero(greater,axis=1),0))
+
+
             label_equality = tf.reduce_sum(label_equality, axis=1)
             diff = maximum_sequence_length - masked_lengths
             quant = label_equality - tf.expand_dims(diff, -1)

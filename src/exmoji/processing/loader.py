@@ -232,7 +232,7 @@ class AspectDatalistBase(Datalist):
 
         for sentence, sentence_pos in zip(sentences, pos_tags):
             numbered_sentences += [
-                self.word_nums.number(word, self.train) for word in sentence
+                self.word_nums.number(word.lower(), self.train) for word in sentence
             ]
             numbered_pos_tags += [
                 self.pos_tag_nums.number(pos[1], self.train) for pos in sentence_pos
@@ -240,7 +240,7 @@ class AspectDatalistBase(Datalist):
 
         return sentences, numbered_sentences, numbered_pos_tags, sentence_lengths, single_lengths
 
-    def create_iob_batches(self, iob_data, batch_size, mini_batch_size, mini_batch=True, bucketing=True, predict=False):
+    def create_iob_batches(self, iob_data, batch_size, mini_batch_size, mini_batch=True, bucketing=False, predict=False):
         if bucketing:
             iob_data = sorted(iob_data, key=itemgetter(-1),reverse=True)
         text_batches = []
@@ -278,7 +278,6 @@ class AspectDatalistBase(Datalist):
                     for i, iob in enumerate(iob_markup[:min(document_length, self.max_len_sentences)]):
                         if iob: #if there are aspect annotations on this token
                             iob_batch[document_index, i, iob] = 1
-
             if mini_batch:
                 if predict:
                     iob_batch = None
