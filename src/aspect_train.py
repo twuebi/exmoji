@@ -12,7 +12,8 @@ from exmoji.nn import Mode, IOBModel, AspectPolarityModel
 IOBConfig = namedtuple("IOBConfig",
     "batch_size label_size input_size word_embedding_size "
     "hidden_neurons hidden_dropout input_dropout initial_learning_rate "
-    "max_epochs vocabulary_size pos_embedding_size num_pos mini_batch_size"
+    "max_epochs vocabulary_size pos_embedding_size num_pos mini_batch_size "
+    "patience model_path"
 )
 
 
@@ -20,7 +21,8 @@ PolarityConfig = namedtuple("PolarityConfig",
     "batch_size label_size input_size num_distances "
     "vocabulary_size word_embedding_size distance_embedding_size max_epochs "
     "hidden_neurons hidden_dropout input_dropout initial_learning_rate "
-    "num_categories category_embedding_size pos_embedding_size num_pos"
+    "num_categories category_embedding_size pos_embedding_size num_pos "
+    "patience model_path"
 )
 
 
@@ -32,7 +34,14 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
         with tf.variable_scope("model", reuse=True):
             validation_model = IOBModel(config, validation_max_length, Mode.VALIDATE)
 
+        with tf.variable_scope("model", reuse=False):
+            prediction_model = IOBModel(config, validation_max_length, Mode.PREDICT)
+
         session.run(tf.global_variables_initializer())
+        saver = tf.train.Saver()
+        best_loss = -1
+        best_accuracy = -1
+        patience_accumulator = 0
 
         for epoch in range(config.max_epochs):
             train_loss = 0
@@ -91,6 +100,20 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
                 )
             )
 
+            if best_accuracy == -1 or validation_accuracy > best_accuracy:
+                best_accuracy = validation_accuracy
+                if config.model_path:
+                    saver.save(session, config.model_path)
+
+            if best_loss == -1 or validation_loss < best_loss:
+                best_loss = validation_loss
+
+            else:
+                patience_accumulator += 1
+                if patience_accumulator >= config.patience:
+                    print("Early stopping after {} epochs without improvement.".format(patience_accumulator))
+                    return
+
 
 def train_aspect_polarity_model(training_batches, validation_batches, training_max_length, validation_max_length, config):
     with tf.Session() as session:
@@ -100,7 +123,14 @@ def train_aspect_polarity_model(training_batches, validation_batches, training_m
         with tf.variable_scope("model", reuse=True):
             validation_model = AspectPolarityModel(config, validation_max_length, Mode.VALIDATE)
 
+        with tf.variable_scope("model", reuse=True):
+            prediction_model = AspectPolarityModel(config, validation_max_length, Mode.PREDICT)
+
         session.run(tf.global_variables_initializer())
+        saver = tf.train.Saver()
+        best_loss = -1
+        best_accuracy = -1
+        patience_accumulator = 0
 
         for epoch in range(config.max_epochs):
             train_loss = 0
@@ -143,6 +173,20 @@ def train_aspect_polarity_model(training_batches, validation_batches, training_m
                     epoch, train_loss, validation_loss, validation_accuracy * 100
                 )
             )
+
+            if best_accuracy == -1 or validation_accuracy > best_accuracy:
+                best_accuracy = validation_accuracy
+                if config.model_path:
+                    saver.save(session, config.model_path)
+
+            if best_loss == -1 or validation_loss < best_loss:
+                best_loss = validation_loss
+
+            else:
+                patience_accumulator += 1
+                if patience_accumulator >= config.patience:
+                    print("Early stopping after {} epochs without improvement.".format(patience_accumulator))
+                    return
 
 
 def print_process(text, dots=4):
@@ -199,6 +243,9 @@ def parse_arguments():
     common_parser.add_argument('--learning-rate', '-l', metavar='N', type=float, default=0.001, help='initial learning rate for the Adam optimizer')
     common_parser.add_argument('--max-epochs', '-m', metavar='N', type=int, default=1000, help='maximum epochs before stopping training')
     common_parser.add_argument('--pos-embedding-size', '-p', metavar='N', type=int, default=0, help='size of part of speech (POS) embedding vectors - 0 to disable')
+    common_parser.add_argument('--save-model', '-s', metavar='PATH', type=str, default=None, help='path to a model file the best model is saved to. Defaults to not saving')
+    common_parser.add_argument('--early-stopping-patience', '-e', metavar='N', type=str, default=1,
+        help='number of epochs to wait for improvements after validation loss increases before stopping and saving the best model')
 
     subparsers = parser.add_subparsers(dest='model')
     subparsers.required = True
@@ -248,7 +295,9 @@ if __name__ == '__main__':
             max_epochs=arguments.max_epochs,
             vocabulary_size=train_datalist.n_words,
             pos_embedding_size=arguments.pos_embedding_size,
-            num_pos=train_datalist.pos_tag_nums.max
+            num_pos=train_datalist.pos_tag_nums.max,
+            patience=arguments.early_stopping_patience,
+            model_path=arguments.save_model
         )
 
         training_batches, validation_batches = load_iob_batches(train_datalist, validation_datalist,config.batch_size, config.mini_batch_size)
@@ -275,7 +324,9 @@ if __name__ == '__main__':
             num_categories=train_datalist.polarity_aspect_category_nums.max,
             category_embedding_size=arguments.category_embedding_size,
             pos_embedding_size=arguments.pos_embedding_size,
-            num_pos=train_datalist.pos_tag_nums.max
+            num_pos=train_datalist.pos_tag_nums.max,
+            patience=arguments.early_stopping_patience,
+            model_path=arguments.save_model
         )
 
         training_batches, validation_batches = load_aspect_polarity_batches(train_datalist, validation_datalist, config.batch_size)
