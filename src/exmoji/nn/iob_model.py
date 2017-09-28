@@ -54,7 +54,7 @@ class IOBModel():
             self.loss = tf.reduce_sum(losses)
 
         if mode == Mode.TRAIN:
-            self.training_operation = tf.train.AdagradOptimizer(config.initial_learning_rate).minimize(losses)
+            self.training_operation = tf.train.AdamOptimizer(config.initial_learning_rate).minimize(losses)
 
         elif mode == Mode.VALIDATE:
             # Highest probability labels of the gold standard data.

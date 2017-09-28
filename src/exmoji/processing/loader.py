@@ -240,7 +240,7 @@ class AspectDatalistBase(Datalist):
 
         return sentences, numbered_sentences, numbered_pos_tags, sentence_lengths, single_lengths
 
-    def create_iob_batches(self, iob_data, batch_size, mini_batch_size, mini_batch=True, bucketing=False, predict=False):
+    def create_iob_batches(self, iob_data, batch_size, mini_batch_size, mini_batch=True, bucketing=True, predict=False):
         if bucketing:
             iob_data = sorted(iob_data, key=itemgetter(-1),reverse=True)
         text_batches = []

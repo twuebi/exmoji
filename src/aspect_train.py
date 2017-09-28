@@ -34,7 +34,7 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
         with tf.variable_scope("model", reuse=True):
             validation_model = IOBModel(config, validation_max_length, Mode.VALIDATE)
 
-        with tf.variable_scope("model", reuse=False):
+        with tf.variable_scope("model", reuse=True):
             prediction_model = IOBModel(config, validation_max_length, Mode.PREDICT)
 
         session.run(tf.global_variables_initializer())
@@ -71,8 +71,9 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
                     mini_batch_loss += loss
                 mini_batch_loss /= len(mini_text_batch)
                 train_loss += mini_batch_loss
-            correct_classes = np.zeros([3,41])
+            predicted_positives = np.zeros([41])
             true_negatives = np.zeros([41])
+            true_positives = np.zeros([41])
             false_negatives = np.zeros([41])
             for mini_text_batch, mini_iob_batch, mini_length_batch, mini_pos_batch in zip(*validation_batches):
                 mini_batch_accuracy = 0
@@ -81,15 +82,14 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
                 bw_init_state = np.zeros([config.batch_size, config.hidden_neurons])
                 for text, iob, length, pos in zip(mini_text_batch, mini_iob_batch, mini_length_batch, mini_pos_batch):
                     ratio = np.ones([config.label_size])
-                    (fw_init_state, bw_init_state),loss, accuracy, pred, equalse, logits,\
+                    (fw_init_state, bw_init_state),loss, accuracy, pred, predictions_vs_labels,\
                     true_pos,\
                     false_pos,\
                     true_neg,\
-                    false_neg = session.run([validation_model.state,validation_model.loss, validation_model.accuracy, validation_model.labels1,validation_model.label_equality,validation_model.logits,
-                                                                                                                 validation_model.true_pos,
-                                                                                                                 validation_model.false_pos,
-                                                                                                                 validation_model.true_neg,
-                                                                                                                 validation_model.false_neg],
+                    false_neg = session.run([validation_model.state,validation_model.loss, validation_model.accuracy,
+                                             validation_model.labels1,validation_model.label_equality,
+                                             validation_model.true_pos, validation_model.false_pos,
+                                             validation_model.true_neg, validation_model.false_neg],
                         {
                             validation_model.ratio : ratio,
                             validation_model.fw_initial_state : fw_init_state,
@@ -100,9 +100,9 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
                             validation_model.pos : pos
                         }
                     )
-                    correct_classes[0] += equalse[0]
-                    correct_classes[1] += np.sum(np.reshape(true_pos,[-1,41]),axis=0)
-                    correct_classes[2] += equalse[1]
+
+                    true_positives += np.sum(np.reshape(true_pos,[-1,41]),axis=0)
+                    predicted_positives += predictions_vs_labels[1]
                     true_negatives += np.sum(np.reshape(true_neg,[-1,41]),axis=0)
                     false_negatives += np.sum(np.reshape(false_neg,[-1,41]),axis=0)
                     mini_batch_loss += loss
@@ -117,10 +117,10 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
             validation_accuracy /= len(validation_batches[0])
             print()
             print("precision: ")
-            print(correct_classes[1].astype(np.int64) / correct_classes[2].astype(np.int64))
+            print(true_positives.astype(np.int64) / predicted_positives.astype(np.int64))
             print()
             print("recall: ")
-            print(correct_classes[1].astype(np.int64) / (false_negatives+correct_classes[1].astype(np.int64)))
+            print(true_positives.astype(np.int64) / (false_negatives+true_positives.astype(np.int64)))
             print()
             print(
                 "epoch {} | train loss: {:.4f} | validation loss: {:.4f} | Accuracy: {:.2f}%".format(
