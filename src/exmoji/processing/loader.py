@@ -323,7 +323,7 @@ class AspectDatalistBase(Datalist):
         for x, entry in enumerate(entries):
             
             if prediction:
-                single_breakpoints, single_length, single_text, single_iob, single_pos = entry
+                single_breakpoints, single_length, single_text, single_pos = entry
             else:
                 single_breakpoints, single_length, single_text, single_iob, single_pos = entry
 

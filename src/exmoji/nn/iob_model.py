@@ -6,15 +6,15 @@ from tensorflow.python.layers.core import Dense
 class IOBModel():
     def __init__(self, config, maximum_sequence_length, mode):
         maximum_sequence_length=config.mini_batch_size
-        self.inputs = tf.placeholder(tf.int32, shape=[config.batch_size, config.input_size], name="inputs")
-        self.document_lengths = tf.placeholder(tf.int32, shape=[config.batch_size], name="lengths")
-        self.pos = tf.placeholder(tf.int32,shape=[config.batch_size, config.input_size], name="pos")
-        self.fw_initial_state = tf.placeholder(tf.float32,shape=[config.batch_size,config.hidden_neurons])
-        self.bw_initial_state = tf.placeholder(tf.float32, shape=[config.batch_size, config.hidden_neurons])
+        self.inputs = tf.placeholder(tf.int32, shape=[None, config.input_size], name="inputs")
+        self.document_lengths = tf.placeholder(tf.int32, shape=[None], name="lengths")
+        self.pos = tf.placeholder(tf.int32,shape=[None, config.input_size], name="pos")
+        self.fw_initial_state = tf.placeholder(tf.float32,shape=[None,config.hidden_neurons])
+        self.bw_initial_state = tf.placeholder(tf.float32, shape=[None, config.hidden_neurons])
 
         if mode != mode.PREDICT:
             self.labels = tf.placeholder(tf.float32,
-                                         shape=[config.batch_size, config.input_size, config.label_size],
+                                         shape=[None, config.input_size, config.label_size],
                                          name="labels")
 
         embeddings = tf.get_variable("embeddings", shape=[config.vocabulary_size, config.word_embedding_size],
@@ -56,6 +56,9 @@ class IOBModel():
         if mode == Mode.TRAIN:
             self.training_operation = tf.train.AdamOptimizer(config.initial_learning_rate).minimize(losses)
 
+        elif mode == Mode.PREDICT:
+            self.results = tf.round(tf.nn.sigmoid(logits), name="results")
+
         elif mode == Mode.VALIDATE:
             # Highest probability labels of the gold standard data.
             hp_labels = self.labels
@@ -64,7 +67,7 @@ class IOBModel():
             self.labels1  = labels = tf.round(tf.nn.sigmoid(logits))
 
             # Calculates labeled accuracy score#
-            self.label_equality = (tf.reduce_sum(tf.count_nonzero(hp_labels,axis=0),axis=0),tf.reduce_sum(tf.count_nonzero(labels,axis=0),axis=0))
+            self.label_equality = tf.reduce_sum(tf.count_nonzero(hp_labels,axis=0),axis=0),tf.reduce_sum(tf.count_nonzero(labels,axis=0),axis=0)
 
             #self.true_pos = tf.boolean_mask(tf.cast(tf.equal(hp_labels, labels), tf.float32), tf.greater(labels, 0))
 
