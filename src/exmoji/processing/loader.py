@@ -238,7 +238,7 @@ class AspectDatalistBase(Datalist):
                 self.pos_tag_nums.number(pos[1], self.train) for pos in sentence_pos
             ]
 
-        return sentences, numbered_sentences, numbered_pos_tags, sentence_lengths, single_lengths
+        return sentences, numbered_sentences, numbered_pos_tags, single_lengths, sentence_lengths
 
     def create_iob_batches(self, iob_data, batch_size, mini_batch_size, mini_batch=True, bucketing=True, predict=False):
         if bucketing:
@@ -263,7 +263,11 @@ class AspectDatalistBase(Datalist):
             document_lengths = np.zeros(batch_size, dtype=np.int32)
             sentence_lengths = np.zeros([batch_size,self.max_amount_sentences])
 
-            for document_index, (document, iob_markup, pos_tags,single_length,document_length) in enumerate(iob_data[start:end]):
+            for document_index, entry in enumerate(iob_data[start:end]):
+                if predict:
+                    document, pos_tags,single_length,document_length = entry
+                else:
+                    document, iob_markup, pos_tags,single_length,document_length = entry
                 sentence_lengths[document_index][:len(single_length)] = single_length
                 document_lengths[document_index] = min(document_length, self.max_len_sentences)
 
@@ -293,21 +297,35 @@ class AspectDatalistBase(Datalist):
         return (text_batches, iob_batches, document_length_batches, pos_batches) if not predict else (text_batches, document_length_batches, pos_batches)
 
 
-    def create_mini_batch(self,batch_size ,iob, text, pos, sentence_lengths,max_length):
+    def create_mini_batch(self,batch_size ,iob, text, pos, sentence_lengths,max_length, prediction=False):
         prediction = iob is None
 
         sentence_ratios = (sentence_lengths / max_length).squeeze()
+
+        if sentence_ratios.ndim == 1:
+            sentence_ratios = np.expand_dims(sentence_ratios, 0)
         ceiled_cum_sum = np.insert(np.ceil(np.cumsum(sentence_ratios, axis=1)).astype(np.int32),0,0,axis=1)
 
         n_splits = np.amax(ceiled_cum_sum)
-        if not prediction:
+        if prediction:
+            iob_new = None
+        else:
             iob_new = np.zeros([n_splits, batch_size, max_length, self.category_nums.max], dtype=np.int32)
         text_new = np.zeros([n_splits, batch_size, max_length], dtype=np.int64)
         pos_new = np.zeros([n_splits, batch_size, max_length], dtype=np.int32)
         length_new = np.zeros([n_splits, batch_size], dtype=np.int32)
 
-        for x,(single_breakpoints, single_length, single_text, single_iob, single_pos) \
-                in enumerate(zip(ceiled_cum_sum, sentence_lengths , text, iob, pos)):
+        if prediction:
+            entries = zip(ceiled_cum_sum, sentence_lengths , text, pos)
+        else:
+            entries = zip(ceiled_cum_sum, sentence_lengths , text, iob, pos)
+
+        for x, entry in enumerate(entries):
+            
+            if prediction:
+                single_breakpoints, single_length, single_text, single_iob, single_pos = entry
+            else:
+                single_breakpoints, single_length, single_text, single_iob, single_pos = entry
 
             lengths = np.zeros(shape=[max(n_splits+1,sentence_ratios.shape[1])])
             lengths[:len(single_length)] = single_length
@@ -334,9 +352,12 @@ class AspectDatalistBase(Datalist):
                     lengths[start] -= diff
                     lengths[end] += diff
 
+                copy_until = len(single_text[i * copy_until:(i + 1) * copy_until])
+
                 text_new[i,x,:copy_until] = single_text[i*copy_until:(i+1)*copy_until]
                 if not prediction:
                     iob_new[i,x,:copy_until] = single_iob[i*copy_until:(i+1)*copy_until]
+
                 pos_new[i,x,:copy_until] = single_pos[i*copy_until:(i+1)*copy_until]
                 length_new[i,x] = copy_until
 
@@ -381,7 +402,7 @@ class AspectDatalist(AspectDatalistBase):
         for processed_count, element in enumerate(parser.xpath("//Document"), 1):
             element_text = element.xpath("text")[0].text
 
-            sentences, numbered_sentences, numbered_pos_tags, sentence_lengths, single_lengths = self.process_document_text(element_text)
+            sentences, numbered_sentences, numbered_pos_tags, single_lengths, sentence_lengths = self.process_document_text(element_text)
             if self.train and sentence_lengths > self.max_len_sentences:
                 self.max_len_sentences = sentence_lengths
             if len(single_lengths) > self.max_amount_sentences:

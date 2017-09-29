@@ -1,3 +1,2 @@
-from exmoji.processing.loader import Datalist
-from exmoji.nn.train import train
-from exmoji.nn.model import Model
+from exmoji.processing import AspectDatalist, AspectDatalistBase, SentimentDatalist
+from exmoji.nn import Model, IOBModel, AspectPolarityModel, train
