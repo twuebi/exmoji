@@ -4,13 +4,14 @@ from exmoji.nn import Mode
 from tensorflow.python.layers.core import Dense
 
 class IOBModel():
+
     def __init__(self, config, maximum_sequence_length, mode):
         maximum_sequence_length=config.mini_batch_size
         self.inputs = tf.placeholder(tf.int32, shape=[None, config.input_size], name="inputs")
         self.document_lengths = tf.placeholder(tf.int32, shape=[None], name="lengths")
         self.pos = tf.placeholder(tf.int32,shape=[None, config.input_size], name="pos")
-        self.fw_initial_state = tf.placeholder(tf.float32,shape=[None,config.hidden_neurons])
-        self.bw_initial_state = tf.placeholder(tf.float32, shape=[None, config.hidden_neurons])
+        self.fw_initial_state = tf.placeholder(tf.float32,shape=[None,config.hidden_neurons], name="initial_forward")
+        self.bw_initial_state = tf.placeholder(tf.float32, shape=[None, config.hidden_neurons], name="initial_backward")
 
         if mode != mode.PREDICT:
             self.labels = tf.placeholder(tf.float32,

@@ -1,6 +1,7 @@
 #!/bin/python3
 from collections import namedtuple
 from multiprocessing import Process
+import os
 
 import tensorflow as tf
 import numpy as np
@@ -131,7 +132,7 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
             if best_accuracy == -1 or validation_accuracy > best_accuracy:
                 best_accuracy = validation_accuracy
                 if config.model_path:
-                    saver.save(session, config.model_path)
+                    saver.save(session, os.path.join(config.model_path, config.model_path))
 
             if best_loss == -1 or validation_loss < best_loss:
                 best_loss = validation_loss
@@ -205,7 +206,7 @@ def train_aspect_polarity_model(training_batches, validation_batches, training_m
             if best_accuracy == -1 or validation_accuracy > best_accuracy:
                 best_accuracy = validation_accuracy
                 if config.model_path:
-                    saver.save(session, config.model_path)
+                    saver.save(session, os.path.join(config.model_path, config.model_path))
 
             if best_loss == -1 or validation_loss < best_loss:
                 best_loss = validation_loss
@@ -271,7 +272,7 @@ def parse_arguments():
     common_parser.add_argument('--learning-rate', '-l', metavar='N', type=float, default=0.001, help='initial learning rate for the Adam optimizer')
     common_parser.add_argument('--max-epochs', '-m', metavar='N', type=int, default=1000, help='maximum epochs before stopping training')
     common_parser.add_argument('--pos-embedding-size', '-p', metavar='N', type=int, default=0, help='size of part of speech (POS) embedding vectors - 0 to disable')
-    common_parser.add_argument('--save-model', '-s', metavar='PATH', type=str, default=None, help='path to a model file the best model is saved to. Defaults to not saving')
+    common_parser.add_argument('--save-model', '-s', metavar='PATH', type=str, default=None, help="path to a model directory the best model is saved to which is created if it doesn't already exist. Defaults to not saving")
     common_parser.add_argument('--early-stopping-patience', '-e', metavar='N', type=str, default=1,
         help='number of epochs to wait for improvements after validation loss increases before stopping and saving the best model')
 
@@ -308,6 +309,11 @@ if __name__ == '__main__':
 
     with arguments.validation_file as in_file:
         validation_datalist = pickle.load(in_file)
+
+    #Create model directory if it doesn't exist already
+    if arguments.save_model:
+        if not os.path.exists(arguments.save_model):
+            os.makedirs(arguments.save_model)
 
     if arguments.model == "iob":
         config = IOBConfig(
