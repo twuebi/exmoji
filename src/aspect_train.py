@@ -132,7 +132,7 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
             if best_accuracy == -1 or validation_accuracy > best_accuracy:
                 best_accuracy = validation_accuracy
                 if config.model_path:
-                    saver.save(session, os.path.join(config.model_path, config.model_path))
+                    saver.save(session, os.path.join(config.model_path, os.path.split(config.model_path)[1]))
 
             if best_loss == -1 or validation_loss < best_loss:
                 best_loss = validation_loss
@@ -206,7 +206,7 @@ def train_aspect_polarity_model(training_batches, validation_batches, training_m
             if best_accuracy == -1 or validation_accuracy > best_accuracy:
                 best_accuracy = validation_accuracy
                 if config.model_path:
-                    saver.save(session, os.path.join(config.model_path, config.model_path))
+                    saver.save(session, os.path.join(config.model_path, os.path.split(config.model_path)[1]))
 
             if best_loss == -1 or validation_loss < best_loss:
                 best_loss = validation_loss

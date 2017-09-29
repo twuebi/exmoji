@@ -73,17 +73,6 @@ class AspectPolarityModel():
             self.equal_counts = tf.equal(hp_labels, labels)
             self.accuracy = tf.reduce_mean(tf.cast(tf.equal(hp_labels, labels), tf.float32))
 
-    def _rnn(self, input_embeddings, config, mode):
-        _, output = tf.nn.dynamic_rnn(
-            tf.contrib.rnn.DropoutWrapper(
-                tf.contrib.rnn.GRUCell(config.hidden_neurons),
-                output_keep_prob=config.hidden_dropout if mode == Mode.TRAIN else 1
-            ),
-            input_embeddings, sequence_length=self.document_lengths, dtype=tf.float32
-        )
-
-        return output
-
     def _bidirectional_rnn(self, input_embeddings, config, mode):
         _, output = tf.nn.bidirectional_dynamic_rnn(
             tf.contrib.rnn.DropoutWrapper(

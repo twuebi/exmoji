@@ -7,15 +7,15 @@ class IOBModel():
 
     def __init__(self, config, maximum_sequence_length, mode):
         maximum_sequence_length=config.mini_batch_size
-        self.inputs = tf.placeholder(tf.int32, shape=[None, config.input_size], name="inputs")
+        self.inputs = tf.placeholder(tf.int32, shape=[None, None], name="inputs")
         self.document_lengths = tf.placeholder(tf.int32, shape=[None], name="lengths")
-        self.pos = tf.placeholder(tf.int32,shape=[None, config.input_size], name="pos")
+        self.pos = tf.placeholder(tf.int32,shape=[None, None], name="pos")
         self.fw_initial_state = tf.placeholder(tf.float32,shape=[None,config.hidden_neurons], name="initial_forward")
         self.bw_initial_state = tf.placeholder(tf.float32, shape=[None, config.hidden_neurons], name="initial_backward")
 
         if mode != mode.PREDICT:
             self.labels = tf.placeholder(tf.float32,
-                                         shape=[None, config.input_size, config.label_size],
+                                         shape=[None, None, config.label_size],
                                          name="labels")
 
         embeddings = tf.get_variable("embeddings", shape=[config.vocabulary_size, config.word_embedding_size],
@@ -89,17 +89,6 @@ class IOBModel():
             denom = (maximum_sequence_length - diff)
             self.accuracy = tf.reduce_mean(quant / tf.expand_dims(denom, -1))
 
-    def _rnn(self, input_embeddings, config, mode):
-        outputs, _ = tf.nn.dynamic_rnn(
-            tf.contrib.rnn.DropoutWrapper(
-                tf.contrib.rnn.GRUCell(config.hidden_neurons),
-                output_keep_prob=config.hidden_dropout if mode == Mode.TRAIN else 1
-            ),
-            input_embeddings, sequence_length=self.document_lengths, dtype=tf.float32
-        )
-
-        return outputs
-
     def _bidirectional_rnn(self, input_embeddings, config, mode, fw_state, bw_state):
         outputs, self.state = tf.nn.bidirectional_dynamic_rnn(
             tf.contrib.rnn.DropoutWrapper(
@@ -114,5 +103,6 @@ class IOBModel():
             initial_state_fw=fw_state,
             initial_state_bw=bw_state
         )
+        self.state = tf.identity(self.state, name="bi_rnn")
         # Concatenate forward and backward propagated cells pairwise
         return tf.concat(outputs, axis=2)
