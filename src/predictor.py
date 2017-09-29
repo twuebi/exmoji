@@ -93,8 +93,9 @@ class IOBModelWrapper(ModelWrapper):
 
 class PolarityModelWrapper(ModelWrapper):
 
-    def __init__(self, model_name):
+    def __init__(self, model_name, datalist):
         super().__init__(model_name)
+        self._datalist = datalist
 
     def _get_variables(self):
         self._vars = PolarityVars(
@@ -105,6 +106,23 @@ class PolarityModelWrapper(ModelWrapper):
             categories=self._graph.get_tensor_by_name("model_2/categories:0"),
             results=self._graph.get_tensor_by_name("model_2/results:0")
         )
+
+    def classify_batch(self, mini_text_batch, mini_length_batch, mini_pos_batch, mini_distance_batch, mini_category_batch):
+        for text, length, pos, distance, category in zip(
+            mini_text_batch, mini_length_batch, mini_pos_batch, mini_distance_batch, mini_category_batch
+        ):
+
+            results = session.run([self._vars.results],
+                {
+                    self._vars.words : text,
+                    self._vars.distances : distance,
+                    self._vars.lengths : length,
+                    self._vars.categories : category,
+                    self._vars.pos : pos
+                }
+            )
+
+            yield from (self._datalist.emo_nums.value(polarity) for polarity in results)
 
 
 def classify_iob(model, documents, datalist, batch_size, mini_batch_size):
@@ -141,7 +159,9 @@ if __name__ == '__main__':
         datalist = pickle.load(datalist_file)
 
     line_buffer = []
-    with IOBModelWrapper(arguments.iob_model_name, datalist) as iob_model, arguments.input as input_file, arguments.output as output_file:
+    with IOBModelWrapper(arguments.iob_model_name, datalist) as iob_model, \
+        PolarityModelWrapper(arguments.polarity_model_name) as polarity_model, \
+        arguments.input as input_file, arguments.output as output_file:
         for line in input_file:
             line_buffer.append(line)
             if len(line_buffer) == arguments.batch_size:
