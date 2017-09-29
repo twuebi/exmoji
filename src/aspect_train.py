@@ -23,7 +23,7 @@ PolarityConfig = namedtuple("PolarityConfig",
     "vocabulary_size word_embedding_size distance_embedding_size max_epochs "
     "hidden_neurons hidden_dropout input_dropout initial_learning_rate "
     "num_categories category_embedding_size pos_embedding_size num_pos "
-    "patience model_path"
+    "patience model_path mini_batch_size"
 )
 
 
@@ -166,32 +166,58 @@ def train_aspect_polarity_model(training_batches, validation_batches, training_m
             validation_loss = 0
             validation_accuracy = 0
 
-            for text_batch, annotation_batch, polarity_batch, length_batch, category_batch, pos_batch in zip(*training_batches):
-                loss, _ = session.run([train_model.loss, train_model.training_operation],
-                    {
-                        train_model.words : text_batch,
-                        train_model.distances : annotation_batch,
-                        train_model.labels : polarity_batch,
-                        train_model.document_lengths : length_batch,
-                        train_model.categories : category_batch,
-                        train_model.pos : pos_batch
-                    }
-                )
-                train_loss += loss
+            for mini_text_batch, mini_annotation_batch, mini_polarity_batch, mini_length_batch, mini_category_batch, mini_pos_batch in zip(*training_batches):
+                fw_init_state = np.zeros([config.batch_size, config.hidden_neurons])
+                bw_init_state = np.zeros([config.batch_size, config.hidden_neurons])
 
-            for text_batch, annotation_batch, polarity_batch, length_batch, category_batch, pos_batch in zip(*validation_batches):
-                loss, accuracy, equalities = session.run([validation_model.loss, validation_model.accuracy ,validation_model.equal_counts],
-                    {
-                        validation_model.words : text_batch,
-                        validation_model.distances : annotation_batch,
-                        validation_model.labels : polarity_batch,
-                        validation_model.document_lengths : length_batch,
-                        validation_model.categories : category_batch,
-                        validation_model.pos : pos_batch
-                    }
-                )
-                validation_loss += loss
-                validation_accuracy += accuracy
+                mini_batch_loss = 0
+                for text_batch, annotation_batch, polarity_batch, length_batch, category_batch, pos_batch in\
+                        zip(mini_text_batch, mini_annotation_batch, mini_polarity_batch, mini_length_batch, mini_category_batch, mini_pos_batch):
+                    (fw_init_state, bw_init_state), loss, _ = session.run(
+                        [train_model.state, train_model.loss, train_model.training_operation],
+                        {
+                            train_model.categories: category_batch,
+                            train_model.fw_initial_state: fw_init_state,
+                            train_model.bw_initial_state: bw_init_state,
+                            train_model.words: text_batch,
+                            train_model.labels: polarity_batch,
+                            train_model.document_lengths: length_batch,
+                            train_model.pos: pos_batch,
+                            train_model.distances: annotation_batch
+                        }
+                        )
+                    mini_batch_loss += loss
+
+                mini_batch_loss /= len(mini_text_batch)
+                train_loss += mini_batch_loss
+
+            for mini_text_batch, mini_annotation_batch, mini_polarity_batch, mini_length_batch, mini_category_batch, mini_pos_batch in zip(*validation_batches):
+                fw_init_state = np.zeros([config.batch_size, config.hidden_neurons])
+                bw_init_state = np.zeros([config.batch_size, config.hidden_neurons])
+
+                mini_batch_accuracy = 0
+                mini_batch_loss = 0
+                for text_batch, annotation_batch, polarity_batch, length_batch, category_batch, pos_batch in \
+                        zip(mini_text_batch, mini_annotation_batch, mini_polarity_batch, mini_length_batch, mini_category_batch, mini_pos_batch):
+                    loss, accuracy, equalities = session.run([validation_model.loss, validation_model.accuracy ,validation_model.equal_counts],
+                        {
+                            validation_model.categories: category_batch,
+                            validation_model.fw_initial_state: fw_init_state,
+                            validation_model.bw_initial_state: bw_init_state,
+                            validation_model.words: text_batch,
+                            validation_model.labels: polarity_batch,
+                            validation_model.document_lengths: length_batch,
+                            validation_model.pos: pos_batch,
+                            validation_model.distances: annotation_batch
+                        }
+                    )
+                    mini_batch_loss += loss
+                    mini_batch_accuracy += accuracy
+
+                mini_batch_accuracy /= len(mini_text_batch)
+                mini_batch_loss /= len(mini_text_batch)
+                validation_loss += mini_batch_loss
+                validation_accuracy += mini_batch_accuracy
 
             train_loss /= len(training_batches[0])
             validation_loss /= len(validation_batches[0])
@@ -242,13 +268,13 @@ def load_iob_batches(train_datalist, validation_datalist, batch_size, mini_batch
     return training_batches, validation_batches
 
 
-def load_aspect_polarity_batches(train_datalist, validation_datalist, batch_size):
+def load_aspect_polarity_batches(train_datalist, validation_datalist, batch_size, mini_batch_size):
     loading = Process(target=print_process, args=("Creating batches",))
     loading.start()
     # Makes sure printing process terminates even if something goes wrong
     try:
-        training_batches = train_datalist.create_aspect_polarity_batches(batch_size)
-        validation_batches = validation_datalist.create_aspect_polarity_batches(batch_size)
+        training_batches = train_datalist.create_aspect_polarity_batches(batch_size,mini_batch_size)
+        validation_batches = validation_datalist.create_aspect_polarity_batches(batch_size,mini_batch_size)
     except:
         #reraise exception - will still execute finally
         raise
@@ -293,6 +319,7 @@ def parse_arguments():
     polarity_parser.add_argument('--word-embedding-size', '-w', metavar='N', type=int, default=200, help='size of input word embedding vectors')
     polarity_parser.add_argument('--distance-embedding-size', '-d', metavar='N', type=int, default=10, help='size of distance embedding vectors - 0 to disable')
     polarity_parser.add_argument('--category-embedding-size', '-c', metavar='N', type=int, default=10, help='size of category embedding vectors - 0 to disable')
+    polarity_parser.add_argument('--mini-batch-size', '-mb', metavar='N', type=int, default=150, help='size of minibatches')
 
     return parser.parse_args()
 
@@ -344,8 +371,9 @@ if __name__ == '__main__':
     else:
         config = PolarityConfig(
             batch_size=arguments.batch_size,
+            mini_batch_size=arguments.mini_batch_size,
             label_size=train_datalist.n_polarities,
-            input_size=train_datalist.max_len_sentences,
+            input_size=arguments.mini_batch_size if arguments.mini_batch_size else train_datalist.max_len_sentences,
             word_embedding_size=arguments.word_embedding_size,
             distance_embedding_size=arguments.distance_embedding_size,
             hidden_neurons=arguments.hidden_neurons,
@@ -363,7 +391,7 @@ if __name__ == '__main__':
             model_path=arguments.save_model
         )
 
-        training_batches, validation_batches = load_aspect_polarity_batches(train_datalist, validation_datalist, config.batch_size)
+        training_batches, validation_batches = load_aspect_polarity_batches(train_datalist, validation_datalist, config.batch_size, config.mini_batch_size)
         # ESC[2K clears the line
         print("\x1b[2KTraining started")
         train_aspect_polarity_model(
