@@ -191,7 +191,7 @@ def aspects_to_string(indices, markup, polarities):
         if not index_list:
             yield "NONE\tNeutral\n\n"
         else:
-            for i in index_list
+            for i in index_list:
                 yield "{}\t{}\n\n".format(markup[i], polarities[i])
 
 if __name__ == '__main__':
