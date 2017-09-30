@@ -151,14 +151,14 @@ def classify_iob(model, documents, datalist, batch_size, mini_batch_size):
     document_to_aspect_indices = []
     all_aspects = []
     aspect_batch = []
-
+    aspect_markup = []
     for aspects in model.classify_batch(*datalist.create_iob_batches(vectors, batch_size, mini_batch_size, predict=True), batch_size):
         if not aspects or not aspects[-1]:
             document_to_aspect_indices.append([])
             continue
 
         document_indices = []
-        aspect_markup = []
+
 
         for aspect, category in zip(*aspects[3:]):
             # get the first and last indices of the array
