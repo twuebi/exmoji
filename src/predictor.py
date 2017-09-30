@@ -30,7 +30,7 @@ class ModelWrapper():
 
 
 IOBVars = namedtuple("IOBVars", "rnn_output_states inputs lengths pos initial_forward initial_backward results")
-PolarityVars = namedtuple("PolarityVars", "words lengths pos distances categories results") # initial_forward initial_backward
+PolarityVars = namedtuple("PolarityVars", "words lengths pos distances categories results initial_forward initial_backward rnn_output_states")
 
 
 class IOBModelWrapper(ModelWrapper):
@@ -115,35 +115,33 @@ class PolarityModelWrapper(ModelWrapper):
             distances=self._graph.get_tensor_by_name("model_2/distances:0"),
             categories=self._graph.get_tensor_by_name("model_2/categories:0"),
             results=self._graph.get_tensor_by_name("model_2/results:0"),
-            #initial_forward=self._graph.get_tensor_by_name("model_2/initial_forward:0"),
-            #initial_backward=self._graph.get_tensor_by_name("model_2/initial_backward:0"),
+            initial_forward=self._graph.get_tensor_by_name("model_2/initial_forward:0"),
+            initial_backward=self._graph.get_tensor_by_name("model_2/initial_backward:0"),
+            rnn_output_states=self._graph.get_tensor_by_name("model_2/bi_rnn:0")
         )
 
-    def classify_batch(self, text_batch, length_batch, pos_batch, distance_batch, category_batch):
-        for mini_text_batch,  mini_length_batch,  mini_pos_batch, mini_annotation_batch, mini_category_batch in zip(
-            text_batch, length_batch, pos_batch, distance_batch, category_batch
+    def classify_batch(self, mini_text_batch, mini_length_batch, mini_pos_batch, mini_annotation_batch, mini_category_batch, batch_size):
+        fw_init_state = np.zeros([batch_size, config.hidden_neurons])
+        bw_init_state = np.zeros([batch_size, config.hidden_neurons])
+
+        mini_batch_loss = 0
+        for text_batch, annotation_batch, length_batch, category_batch, pos_batch in zip(
+            mini_text_batch, mini_annotation_batch, mini_length_batch, mini_category_batch, mini_pos_batch
         ):
-            fw_init_state = np.zeros([config.batch_size, config.hidden_neurons])
-            bw_init_state = np.zeros([config.batch_size, config.hidden_neurons])
+            (fw_init_state, bw_init_state), results = self._session.run(
+                [self._vars.rnn_output_states, self._vars.results],
+                {
+                    self._vars.words : text,
+                    self._vars.distances : distance,
+                    self._vars.categories : category,
+                    self._vars.lengths : length,
+                    self._vars.pos : pos,
+                    self._vars.initial_forward : fw_init_state,
+                    self._vars.initial_backward : bw_init_state
+                }
+            )
 
-            mini_batch_loss = 0
-            for text_batch, annotation_batch, length_batch, category_batch, pos_batch in zip(
-                mini_text_batch, mini_annotation_batch, mini_length_batch, mini_category_batch, mini_pos_batch
-            ):
-                (fw_init_state, bw_init_state), results = session.run(
-                    [train_model.state, train_model.loss, train_model.training_operation],
-                    {
-                        self._vars.words : text,
-                        self._vars.distances : distance,
-                        self._vars.categories : category,
-                        self._vars.lengths : length,
-                        self._vars.pos : pos,
-                        self._vars.initial_forward : fw_init_state,
-                        self._vars.initial_backward : bw_init_state
-                    }
-                )
-
-                yield from (self._datalist.emo_nums.value(polarity) for polarity in results)
+            yield from (self._datalist.emo_nums.value(polarity) for polarity in results)
 
 
 def classify_iob(model, documents, datalist, batch_size, mini_batch_size):
