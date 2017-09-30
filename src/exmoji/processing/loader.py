@@ -223,7 +223,7 @@ class AspectDatalistBase(Datalist):
             for sentence in nltk.sent_tokenize(document, language="german")
         ]
 
-        # pos_tags = self.pos_tagger.tag_sents(sentences)
+        pos_tags = self.pos_tagger.tag_sents(sentences)
 
         single_lengths = [len(sentence) for sentence in sentences]
         sentence_lengths = sum(single_lengths)
@@ -231,12 +231,12 @@ class AspectDatalistBase(Datalist):
         numbered_sentences = []
         numbered_pos_tags = []
 
-        for sentence in sentences:  # sentence_pos in zip(sentences, pos_tags):
+        for sentence ,sentence_pos in zip(sentences, pos_tags):
             numbered_sentences += [
                 self.word_nums.number(word.lower(), self.train) for word in sentence
             ]
             numbered_pos_tags += [
-                self.word_nums.number(word.lower(), self.train) for word in sentence
+                self.pos_tag_nums.number(pos, self.train) for pos in sentence_pos
             ]
 
         return sentences, numbered_sentences, numbered_pos_tags, single_lengths, sentence_lengths
@@ -593,6 +593,7 @@ class AspectDatalist(AspectDatalistBase):
 
 class Numberer:
     def __init__(self, first_element=None):
+        self.external_numbers = False
         self.unkown_idx = 0
         if first_element:
             self.num2value = {1: first_element}
@@ -604,6 +605,7 @@ class Numberer:
             self.idx = 1
 
     def number(self, value, train):
+        train = (not self.external_numbers) and train
 
         if train and value not in self.value2num:
             self.value2num[value] = self.idx

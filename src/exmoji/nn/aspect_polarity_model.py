@@ -76,7 +76,7 @@ class AspectPolarityModel():
             self.equal_counts = tf.equal(hp_labels, labels)
             self.accuracy = tf.reduce_mean(tf.cast(tf.equal(hp_labels, labels), tf.float32))
 
-    def _bidirectional_rnn(self, input_embeddings, config, mode):
+    def _bidirectional_rnn(self, input_embeddings, config, mode, fw_state, bw_state):
         _, self.state = tf.nn.bidirectional_dynamic_rnn(
             tf.contrib.rnn.DropoutWrapper(
                 tf.contrib.rnn.GRUCell(config.hidden_neurons),
@@ -86,7 +86,10 @@ class AspectPolarityModel():
                 tf.contrib.rnn.GRUCell(config.hidden_neurons),
                 output_keep_prob=config.hidden_dropout if mode == Mode.TRAIN else 1
             ),
-            input_embeddings, sequence_length=self.document_lengths, dtype=tf.float32
+            input_embeddings, sequence_length=self.document_lengths, dtype=tf.float32,
+            initial_state_fw = fw_state,
+            initial_state_bw = bw_state
         )
+        self.state = tf.identity(self.state, name="bi_rnn")
         # Concatenate forward and backward output cells
         return tf.concat(self.state, axis=1)
