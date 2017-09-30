@@ -73,16 +73,14 @@ class IOBModelWrapper(ModelWrapper):
                 )
                 for word_nums, iob, length in zip(text, results, lengths):
                     words = word_nums[:length]
-                    
-                    if not np.count_nonzero(iob.argmax(axis=2)):
+                    if not np.count_nonzero(iob):
                         yield None
                     else:
                         aspects = []
                         aspect_categories = []
 
                         open_aspects = {}
-                        for i, (word_iob, word) in enumerate(zip(iob, words)):
-                            categories = word_iob.argmax(axis=1)
+                        for i, (categories, word) in enumerate(zip(iob, words)):
                             zeros = np.where(categories == 0)[0]
                             non_zeros = categories.nonzero()[0]
                             
@@ -181,7 +179,8 @@ def classify_iob(model, documents, datalist, batch_size, mini_batch_size):
 
         document_to_aspect_indices.append(document_indices)
 
-    print(document_to_aspect_indices, all_aspects)
+    batch = [np.array(i) for i in zip(*all_aspects)]
+    return document_to_aspect_indices, list(polarity_model.classify_batch(*batch, len(all_aspects)))
 
 
 if __name__ == '__main__':

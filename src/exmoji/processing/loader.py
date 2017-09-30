@@ -240,6 +240,16 @@ class AspectDatalistBase(Datalist):
         return sentences, numbered_sentences, numbered_pos_tags, single_lengths, sentence_lengths
 
     def create_iob_batches(self, iob_data, batch_size, mini_batch_size, mini_batch=True, bucketing=True, predict=False):
+        """
+
+        :param iob_data:
+        :param batch_size:
+        :param mini_batch_size:
+        :param mini_batch:
+        :param bucketing:
+        :param predict:
+        :return:
+        """
         if bucketing:
             iob_data = sorted(iob_data, key=itemgetter(-1), reverse=True)
         text_batches = []
@@ -307,20 +317,35 @@ class AspectDatalistBase(Datalist):
             text_batches, document_length_batches, pos_batches)
 
     def create_mini_batch(self, batch_size, old_time_axis_collection, sentence_lengths, max_length,
-                          no_time_axis_collection=None, prediction=False):
+                          no_time_axis_collection=None):
+        """
+        batches the given data into mini batchis along their time axis. tries to keep sentences intact, only
+        splits sentences when sentence length > max length
 
+        CURRENTLY ONLY WORKING FOR 2nd and 3rd time_axis
+
+        :param batch_size: the batch size
+        :param old_time_axis_collection:
+        :param sentence_lengths: numpy array containing the sentence lengths
+        :param max_length: maximum length along time axis of the new batches
+        :param no_time_axis_collection: arrays that will not be splitted
+        :param prediction: if true
+        :return:
+        """
         sentence_ratios = (sentence_lengths / max_length).squeeze()
 
         if sentence_ratios.ndim == 1:
             sentence_ratios = np.expand_dims(sentence_ratios, 0)
+        # sums the ratio of single sentences, every integer step means +1 split
         ceiled_cum_sum = np.insert(np.ceil(np.cumsum(sentence_ratios, axis=1)).astype(np.int32), 0, 0, axis=1)
 
+        # number of splits
         n_splits = np.amax(ceiled_cum_sum)
-        new_time_axis_collection = [np.zeros([n_splits, batch_size, max_length]
-                                             if len(old.shape) == 2
-                                             else [n_splits, batch_size, max_length]
-                                                  + [shape for shape in old.shape[2:]]
+
+        new_time_axis_collection = [np.zeros([n_splits, batch_size, max_length] if len(old.shape) == 2 else
+                                             [n_splits, batch_size, max_length] + [shape for shape in old.shape[2:]]
                                              , dtype=np.int32) for old in old_time_axis_collection]
+
         if no_time_axis_collection is not None:
             new_no_time_axis_collection = [np.repeat(np.expand_dims(one, 0), n_splits, axis=0)
                                            for one in no_time_axis_collection]

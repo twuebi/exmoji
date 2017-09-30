@@ -287,9 +287,8 @@ def load_iob_batches(train_datalist, validation_datalist, batch_size, mini_batch
     loading.start()
     # Makes sure printing process terminates even if something goes wrong
     try:
-        training_batches = train_datalist.create_iob_batches(train_datalist.iob_data, batch_size, mini_batch_size)
-        validation_batches = validation_datalist.create_iob_batches(validation_datalist.iob_data, batch_size,
-                                                                    mini_batch_size)
+        training_batches = train_datalist.create_iob_batches(batch_size, mini_batch_size)
+        validation_batches = validation_datalist.create_iob_batches(batch_size, mini_batch_size)
     except:
         # reraise exception - will still execute finally
         raise
