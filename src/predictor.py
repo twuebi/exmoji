@@ -74,7 +74,8 @@ class IOBModelWrapper(ModelWrapper):
                 for word_nums, iob, length in zip(text, results, lengths):
                     words = word_nums[:length]
                     if not np.count_nonzero(iob):
-                        yield None
+                        yield text, lengths, pos, [np.zeros(mini_text_batch.shape[2])], [self._datalist.category_nums["Allgemein"]]
+                                    
                     else:
                         aspects = []
                         aspect_categories = []
