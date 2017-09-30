@@ -202,11 +202,13 @@ class AspectDatalistBase(Datalist):
 
         if self.train:
             self.category_nums = Numberer()
+            self.IOB_nums = Numberer()
             self.polarity_aspect_category_nums = Numberer()
             self.distance_nums = Numberer(first_element=0)
             self.pos_tag_nums = Numberer()
         else:
             self.category_nums = trained_datalist.category_nums
+            self.IOB_nums = trained_datalist.IOB_nums
             self.polarity_aspect_category_nums = trained_datalist.polarity_aspect_category_nums
             self.distance_nums = trained_datalist.distance_nums
             self.pos_tag_nums = trained_datalist.pos_tag_nums
@@ -221,7 +223,7 @@ class AspectDatalistBase(Datalist):
             for sentence in nltk.sent_tokenize(document, language="german")
         ]
 
-        #pos_tags = self.pos_tagger.tag_sents(sentences)
+        # pos_tags = self.pos_tagger.tag_sents(sentences)
 
         single_lengths = [len(sentence) for sentence in sentences]
         sentence_lengths = sum(single_lengths)
@@ -229,7 +231,7 @@ class AspectDatalistBase(Datalist):
         numbered_sentences = []
         numbered_pos_tags = []
 
-        for sentence in sentences:# sentence_pos in zip(sentences, pos_tags):
+        for sentence in sentences:  # sentence_pos in zip(sentences, pos_tags):
             numbered_sentences += [
                 self.word_nums.number(word.lower(), self.train) for word in sentence
             ]
@@ -246,6 +248,7 @@ class AspectDatalistBase(Datalist):
         pos_batches = []
         if not predict:
             iob_batches = []
+            cat_batches = []
         document_length_batches = []
 
         num_batches = len(iob_data) // batch_size
@@ -257,8 +260,8 @@ class AspectDatalistBase(Datalist):
             pos_batch = np.zeros((batch_size, self.max_len_sentences), dtype=np.int32)
 
             if not predict:
-                iob_batch = np.zeros((batch_size, self.max_len_sentences, self.category_nums.max), dtype=np.int32)
-
+                iob_batch = np.zeros((batch_size, self.max_len_sentences, self.IOB_nums.max), dtype=np.int32)
+                cat_batch = np.zeros((batch_size, self.max_len_sentences, self.category_nums.max), dtype=np.int32)
             document_lengths = np.zeros(batch_size, dtype=np.int32)
             sentence_lengths = np.zeros([batch_size, self.max_amount_sentences])
 
@@ -266,7 +269,7 @@ class AspectDatalistBase(Datalist):
                 if predict:
                     document, pos_tags, single_length, document_length = entry
                 else:
-                    document, iob_markup, pos_tags, single_length, document_length = entry
+                    document, iob_markup, category, pos_tags, single_length, document_length = entry
                 sentence_lengths[document_index][:len(single_length)] = single_length
                 document_lengths[document_index] = min(document_length, self.max_len_sentences)
 
@@ -278,34 +281,36 @@ class AspectDatalistBase(Datalist):
                     pos_batch[document_index] = pos_tags[:self.max_len_sentences]
 
                 if not predict:
-                    for i, iob in enumerate(iob_markup[:min(document_length, self.max_len_sentences)]):
-                        if iob:  # if there are aspect annotations on this token
-                            iob_batch[document_index, i, iob] = 1
+                    for i, (cat, iob) in enumerate(zip(category[:min(document_length, self.max_len_sentences)],
+                                                       iob_markup[:min(document_length, self.max_len_sentences)])):
+                        if cat:
+                            cat_batch[document_index, i, cat] = iob
             if mini_batch:
                 if predict:
                     time_axis, _, document_lengths = self.create_mini_batch(batch_size,
-                                                                               [text_batch,
-                                                                                pos_batch],
-                                                                               sentence_lengths,
-                                                                               mini_batch_size)
+                                                                            [text_batch,
+                                                                             pos_batch],
+                                                                            sentence_lengths,
+                                                                            mini_batch_size)
                     text_batch, pos_batch = time_axis
                 else:
                     time_axis, _, document_lengths = self.create_mini_batch(batch_size,
-                                                                               [iob_batch, text_batch,
-                                                                                pos_batch],
-                                                                               sentence_lengths,
-                                                                               mini_batch_size)
-                    iob_batch,text_batch,pos_batch = time_axis
+                                                                            [iob_batch, cat_batch, text_batch,
+                                                                             pos_batch],
+                                                                            sentence_lengths,
+                                                                            mini_batch_size)
+                    iob_batch, cat_batch, text_batch, pos_batch = time_axis
             if not predict:
-                iob_batches.append(iob_batch)
+                cat_batches.append(cat_batch)
             text_batches.append(text_batch)
             pos_batches.append(pos_batch)
             document_length_batches.append(document_lengths)
 
-        return (text_batches, iob_batches, document_length_batches, pos_batches) if not predict else (
-        text_batches, document_length_batches, pos_batches)
+        return (text_batches, cat_batches, document_length_batches, pos_batches) if not predict else (
+            text_batches, document_length_batches, pos_batches)
 
-    def create_mini_batch(self, batch_size, old_time_axis_collection, sentence_lengths, max_length, no_time_axis_collection=None, prediction=False):
+    def create_mini_batch(self, batch_size, old_time_axis_collection, sentence_lengths, max_length,
+                          no_time_axis_collection=None, prediction=False):
 
         sentence_ratios = (sentence_lengths / max_length).squeeze()
 
@@ -314,13 +319,13 @@ class AspectDatalistBase(Datalist):
         ceiled_cum_sum = np.insert(np.ceil(np.cumsum(sentence_ratios, axis=1)).astype(np.int32), 0, 0, axis=1)
 
         n_splits = np.amax(ceiled_cum_sum)
-        new_time_axis_collection = [np.zeros([n_splits,batch_size,max_length]
+        new_time_axis_collection = [np.zeros([n_splits, batch_size, max_length]
                                              if len(old.shape) == 2
-                                             else [n_splits,batch_size,max_length]
+                                             else [n_splits, batch_size, max_length]
                                                   + [shape for shape in old.shape[2:]]
                                              , dtype=np.int32) for old in old_time_axis_collection]
         if no_time_axis_collection is not None:
-            new_no_time_axis_collection = [np.repeat(np.expand_dims(one,0), n_splits,axis=0)
+            new_no_time_axis_collection = [np.repeat(np.expand_dims(one, 0), n_splits, axis=0)
                                            for one in no_time_axis_collection]
 
         length_new = np.zeros([n_splits, batch_size], dtype=np.int32)
@@ -365,7 +370,7 @@ class AspectDatalistBase(Datalist):
 
     @property
     def numberers(self):
-        return self.category_nums, self.distance_nums, self.word_nums, self.emo_nums, self.pos_tag_nums
+        return self.category_nums, self.distance_nums, self.word_nums, self.emo_nums, self.pos_tag_nums, self.IOB_num
 
     @property
     def n_pos_tags(self):
@@ -419,6 +424,7 @@ class AspectDatalist(AspectDatalistBase):
                 category = category[:category.find("#")]
 
                 if target == "NULL":
+                    category_annotation = [[]] * sentence_lengths
                     iob_annotation = [[]] * sentence_lengths
                     aspect_locations = np.zeros((1, sentence_lengths))
                     aspect_polarities.append(self.emo_nums.number(polarity, self.train))
@@ -446,7 +452,7 @@ class AspectDatalist(AspectDatalistBase):
                 # ignore irrelevant documents
                 if not annotation_indices:
                     continue
-
+                category_annotation = []
                 iob_annotation = []
                 # initialize all aspect maps
                 aspect_locations = np.ones((len(annotation_to_index), sentence_lengths))
@@ -469,8 +475,8 @@ class AspectDatalist(AspectDatalistBase):
                             text_index += 1
 
                         available_ends = check_index(text_index, annotation_indices, available_ends)
+                        category_annotation.append([])
                         iob_annotation.append([])
-
                         if available_ends:
                             for categories in available_ends.values():
                                 for category in categories:
@@ -479,17 +485,22 @@ class AspectDatalist(AspectDatalistBase):
 
                                     if category[1][1]:  # if the annotation doesn't have a begin element yet
                                         category[1][1] = False
+                                        category_annotation[-1].append(
+                                            self.category_nums.number((category[1][0]), self.train))
                                         iob_annotation[-1].append(
-                                            self.category_nums.number((IOB_Type.I, category[1][0]), self.train))
+                                            self.IOB_nums.number(IOB_Type.B, self.train))
                                     else:
+                                        category_annotation[-1].append(
+                                            self.category_nums.number((category[1][0]), self.train))
                                         iob_annotation[-1].append(
-                                            self.category_nums.number((IOB_Type.I, category[1][0]), self.train))
+                                            self.IOB_nums.number(IOB_Type.I, self.train))
 
                         text_index += len(word) - 1
                         word_index += 1
 
             self.iob_data.append(
-                (numbered_sentences, iob_annotation, numbered_pos_tags, single_lengths, sentence_lengths))
+                (numbered_sentences, iob_annotation, category_annotation, numbered_pos_tags, single_lengths,
+                 sentence_lengths))
 
             for aspect, polarity, category in zip(aspect_locations, aspect_polarities, aspect_categories):
                 if np.any(aspect == 0):
@@ -507,7 +518,8 @@ class AspectDatalist(AspectDatalistBase):
                             np.int16, len(aspect) - end - 1
                         )
 
-                self.polarity_data.append((numbered_sentences, aspect, polarity, category, numbered_pos_tags,single_lengths,sentence_lengths))
+                self.polarity_data.append((numbered_sentences, aspect, polarity, category, numbered_pos_tags,
+                                           single_lengths, sentence_lengths))
 
             if verbose and processed_count % 100 == 0:
                 print("Processed", processed_count, "documents", end="\r")
@@ -538,8 +550,9 @@ class AspectDatalist(AspectDatalistBase):
             sentence_lengths = np.zeros([batch_size, self.max_amount_sentences])
             aspect_category_batch = np.zeros(batch_size, dtype=np.int32)
 
-            for document_index, (document, aspect_markup, polarity, aspect_category, pos_tags,single_length, _) in enumerate(
-                    polarity_data[start:end]):
+            for document_index, (
+                    document, aspect_markup, polarity, aspect_category, pos_tags, single_length, _) in enumerate(
+                polarity_data[start:end]):
                 document_length = len(document)
                 document_lengths[document_index] = min(document_length, self.max_len_sentences)
                 sentence_lengths[document_index][:len(single_length)] = single_length
@@ -555,10 +568,14 @@ class AspectDatalist(AspectDatalistBase):
                     pos_batch[document_index] = pos_tags[:self.max_len_sentences]
                     aspect_location_batch[document_index] = aspect_markup[:self.max_len_sentences]
             if mini_batch_size != 0:
-                time_axis, no_time_axis, document_lengths = self.create_mini_batch(batch_size, [text_batch, pos_batch, aspect_location_batch], sentence_lengths, mini_batch_size,
-                                                                                   no_time_axis_collection=[aspect_category_batch, polarity_batch])
+                time_axis, no_time_axis, document_lengths = self.create_mini_batch(batch_size, [text_batch, pos_batch,
+                                                                                                aspect_location_batch],
+                                                                                   sentence_lengths, mini_batch_size,
+                                                                                   no_time_axis_collection=[
+                                                                                       aspect_category_batch,
+                                                                                       polarity_batch])
                 text_batch, pos_batch, aspect_location_batch = time_axis
-                aspect_category_batch,polarity_batch = no_time_axis
+                aspect_category_batch, polarity_batch = no_time_axis
 
             text_batches.append(text_batch)
             pos_batches.append(pos_batch)
@@ -576,15 +593,15 @@ class AspectDatalist(AspectDatalistBase):
 
 class Numberer:
     def __init__(self, first_element=None):
-        self.unkown_idx = 1
+        self.unkown_idx = 0
         if first_element:
-            self.num2value = {2: first_element}
-            self.value2num = {first_element: 2}
-            self.idx = 3
+            self.num2value = {1: first_element}
+            self.value2num = {first_element: 1}
+            self.idx = 1
         else:
             self.num2value = {}
             self.value2num = {}
-            self.idx = 2
+            self.idx = 1
 
     def number(self, value, train):
 
