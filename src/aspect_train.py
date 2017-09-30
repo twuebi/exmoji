@@ -22,7 +22,7 @@ PolarityConfig = namedtuple("PolarityConfig",
                             "vocabulary_size word_embedding_size distance_embedding_size max_epochs "
                             "hidden_neurons hidden_dropout input_dropout initial_learning_rate "
                             "num_categories category_embedding_size pos_embedding_size num_pos "
-                            "patience model_path mini_batch_size"
+                            "patience model_path mini_batch_size w2v_path"
                             )
 
 
@@ -30,11 +30,7 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
     with tf.Session() as session:
         with tf.variable_scope("model", reuse=False):
             train_model = IOBModel(config, training_max_length, Mode.TRAIN)
-            if config.w2v_path:
-                m = KeyedVectors.load_word2vec_format('/home/tobi/Downloads/wiki.de2w2v')
-                session.run([train_model.init_embeddings], feed_dict={
-                    train_model.feed_embeddings : m.syn0
-                })
+
         with tf.variable_scope("model", reuse=True):
             validation_model = IOBModel(config, validation_max_length, Mode.VALIDATE)
 
@@ -42,6 +38,14 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
             prediction_model = IOBModel(config, validation_max_length, Mode.PREDICT)
 
         session.run(tf.global_variables_initializer())
+
+        if config.w2v_path:
+            with open("save_this", "rb") as in_file:
+                syn0 = pickle.load(in_file)
+            session.run([train_model.embeddings], feed_dict={
+                train_model.embeddings: syn0
+            })
+
         saver = tf.train.Saver()
         best_loss = -1
         best_accuracy = -1
@@ -61,7 +65,7 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
                                                   mini_pos_batch):
                     ratio = np.sum(np.count_nonzero(cat, axis=0), axis=0) / (np.sum(length))
                     ratio[np.argwhere(ratio == 0)] += 1
-                    ratio = (1 / ratio) / 8
+                    ratio = (1 / ratio)
                     (fw_init_state, bw_init_state), loss, _ = session.run(
                         [train_model.state, train_model.loss, train_model.training_operation],
                         {
@@ -116,6 +120,7 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
                     false_negatives += np.sum(np.reshape(false_neg, [-1, config.label_size]), axis=0)
                     mini_batch_loss += loss
                     mini_batch_accuracy += accuracy
+
                 mini_batch_hamming /= len(mini_text_batch)
                 mini_batch_accuracy /= len(mini_text_batch)
                 mini_batch_loss /= len(mini_text_batch)
@@ -127,6 +132,7 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
             validation_loss /= len(validation_batches[0])
             validation_accuracy /= len(validation_batches[0])
             np.set_printoptions(10, suppress=True)
+
             print()
             print("precision (no distinction between B and I): ")
             print(true_positives.astype(np.int64) / predicted_positives.astype(np.int64))
@@ -160,7 +166,6 @@ def train_aspect_polarity_model(training_batches, validation_batches, training_m
     with tf.Session() as session:
         with tf.variable_scope("model", reuse=False):
             train_model = AspectPolarityModel(config, training_max_length, Mode.TRAIN)
-
         with tf.variable_scope("model", reuse=True):
             validation_model = AspectPolarityModel(config, validation_max_length, Mode.VALIDATE)
 
@@ -168,6 +173,14 @@ def train_aspect_polarity_model(training_batches, validation_batches, training_m
             prediction_model = AspectPolarityModel(config, validation_max_length, Mode.PREDICT)
 
         session.run(tf.global_variables_initializer())
+
+        if config.w2v_path:
+            with open("save_this", "rb") as in_file:
+                syn0 = pickle.load(in_file)
+            session.run([train_model.embeddings], feed_dict={
+                train_model.embeddings: syn0
+            })
+
         saver = tf.train.Saver()
         best_loss = -1
         best_accuracy = -1
@@ -328,7 +341,8 @@ def parse_arguments():
                                help="path to a model directory the best model is saved to which is created if it doesn't already exist. Defaults to not saving")
     common_parser.add_argument('--early-stopping-patience', '-e', metavar='N', type=int, default=1,
                                help='number of epochs to wait for improvements after validation loss increases before stopping and saving the best model')
-
+    common_parser.add_argument('--w2v-path', '-w2v', metavar='N', type=str, default=None,
+                               help='path to pretrained word embeddings')
     subparsers = parser.add_subparsers(dest='model')
     subparsers.required = True
 
@@ -339,7 +353,7 @@ def parse_arguments():
     iob_parser.add_argument('--word-embedding-size', '-w', metavar='N', type=int, default=200,
                             help='size of input word embedding vectors')
     iob_parser.add_argument('--mini-batch-size', '-mb', metavar='N', type=int, default=150, help='size of minibatches')
-    iob_parser.add_argument('--w2v-path', '-w2v', metavar='N', type=str, default=None, help='path to pretrained word embeddings')
+
     polarity_parser = subparsers.add_parser(
         'polarity', help="trains polarity classification of aspects", parents=[common_parser],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
@@ -423,7 +437,8 @@ if __name__ == '__main__':
             pos_embedding_size=arguments.pos_embedding_size,
             num_pos=train_datalist.pos_tag_nums.max,
             patience=arguments.early_stopping_patience,
-            model_path=arguments.save_model
+            model_path=arguments.save_model,
+            w2v_path=arguments.w2v_path
         )
 
         training_batches, validation_batches = load_aspect_polarity_batches(train_datalist, validation_datalist,

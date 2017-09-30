@@ -19,7 +19,8 @@ class AspectPolarityModel():
         if mode != mode.PREDICT:
             self.labels = tf.placeholder(tf.float32, shape=[None, config.label_size], name="labels")
 
-        word_embeddings = tf.get_variable("word_embeddings", shape=[config.vocabulary_size, config.word_embedding_size])
+        self.embeddings = word_embeddings = tf.get_variable("word_embeddings", shape=[config.vocabulary_size, config.word_embedding_size],
+                                                            initializer=tf.contrib.layers.xavier_initializer())
 
         if config.distance_embedding_size:
             distance_embeddings = tf.get_variable("distance_embeddings", shape=[config.num_distances, config.distance_embedding_size])
@@ -77,7 +78,7 @@ class AspectPolarityModel():
             self.accuracy = tf.reduce_mean(tf.cast(tf.equal(hp_labels, labels), tf.float32))
 
     def _bidirectional_rnn(self, input_embeddings, config, mode, fw_state, bw_state):
-        _, self.state = tf.nn.bidirectional_dynamic_rnn(
+        _, state = tf.nn.bidirectional_dynamic_rnn(
             tf.contrib.rnn.DropoutWrapper(
                 tf.contrib.rnn.GRUCell(config.hidden_neurons),
                 output_keep_prob=config.hidden_dropout if mode == Mode.TRAIN else 1
@@ -90,6 +91,6 @@ class AspectPolarityModel():
             initial_state_fw = fw_state,
             initial_state_bw = bw_state
         )
-        self.state = tf.identity(self.state, name="bi_rnn")
+        self.state = tf.identity(state, name="bi_rnn")
         # Concatenate forward and backward output cells
-        return tf.concat(self.state, axis=1)
+        return tf.concat(state, axis=1)
