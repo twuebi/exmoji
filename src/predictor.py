@@ -156,13 +156,15 @@ def classify_iob(model, documents, datalist, batch_size, mini_batch_size):
     aspect_batch = []
     aspect_markup = []
     categories = []
+    text_lengths = []
+
     for aspects in model.classify_batch(*datalist.create_iob_batches(vectors, batch_size, mini_batch_size, predict=True), batch_size):
         if not aspects or not aspects[-1]:
             document_to_aspect_indices.append([])
             continue
 
         document_indices = []
-
+        text_lengths.append(aspects[1])
 
         for aspect, category in zip(*aspects[3:]):
             # get the first and last indices of the array
@@ -188,16 +190,16 @@ def classify_iob(model, documents, datalist, batch_size, mini_batch_size):
         document_to_aspect_indices.append(document_indices)
 
     batch = [[np.array(i)] for i in zip(*all_aspects)]
-    return document_to_aspect_indices, aspect_markup, (list(polarity_model.classify_batch(*batch, len(all_aspects))) if len(all_aspects) != 0 else len(documents) * []), categories, texts
+    return document_to_aspect_indices, aspect_markup, (list(polarity_model.classify_batch(*batch, len(all_aspects))) if len(all_aspects) != 0 else len(documents) * []), categories, text_lengths
 
 
-def aspects_to_string(indices, markup, polarities, categories, texts):
-    for text, index_list in zip(texts, indices):
+def aspects_to_string(indices, markup, polarities, categories, text_lengths):
+    for length, index_list in zip(text_lengths, indices):
         if not index_list:
-            yield "{}\tNONE\tAllgemein\tNeutral\n\n".format(" ".join(text))
+            yield "NONE\tAllgemein\tNeutral\n\n"
         else:
             for i in index_list:
-                yield "{}\t{}\t{}\t{}\n\n".format(" ".join(text), " ".join(markup[i][:len(text)]), polarities[i], categories[i])
+                yield "{}\t{}\t{}\n\n".format(" ".join(markup[i][:length]), polarities[i], categories[i])
 
 if __name__ == '__main__':
     import sys
