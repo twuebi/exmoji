@@ -6,10 +6,10 @@ from exmoji.nn import Mode
 class AspectPolarityModel():
 
     def __init__(self, config, maximum_sequence_length, mode):
-        self.words = tf.placeholder(tf.int32, shape=[None, config.input_size], name="words")
-        self.distances = tf.placeholder(tf.int32, shape=[None, config.input_size], name="distances") 
+        self.words = tf.placeholder(tf.int32, shape=[None, None], name="words")
+        self.distances = tf.placeholder(tf.int32, shape=[None, None], name="distances")
         self.categories = tf.placeholder(tf.int32, shape=[None], name="categories")
-        self.pos = tf.placeholder(tf.int32,shape=[None, config.input_size], name="pos")
+        self.pos = tf.placeholder(tf.int32,shape=[None, None], name="pos")
 
         self.fw_initial_state = tf.placeholder(tf.float32, shape=[None, config.hidden_neurons], name="initial_forward")
         self.bw_initial_state = tf.placeholder(tf.float32, shape=[None, config.hidden_neurons], name="initial_backward")

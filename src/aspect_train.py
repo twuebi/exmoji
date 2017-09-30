@@ -40,7 +40,7 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
         session.run(tf.global_variables_initializer())
 
         if config.w2v_path:
-            with open("save_this", "rb") as in_file:
+            with open(config.w2v_path, "rb") as in_file:
                 syn0 = pickle.load(in_file)
             session.run([train_model.embeddings], feed_dict={
                 train_model.embeddings: syn0
@@ -175,7 +175,7 @@ def train_aspect_polarity_model(training_batches, validation_batches, training_m
         session.run(tf.global_variables_initializer())
 
         if config.w2v_path:
-            with open("save_this", "rb") as in_file:
+            with open(config.w2v_path, "rb") as in_file:
                 syn0 = pickle.load(in_file)
             session.run([train_model.embeddings], feed_dict={
                 train_model.embeddings: syn0
@@ -287,8 +287,8 @@ def load_iob_batches(train_datalist, validation_datalist, batch_size, mini_batch
     loading.start()
     # Makes sure printing process terminates even if something goes wrong
     try:
-        training_batches = train_datalist.create_iob_batches(batch_size, mini_batch_size)
-        validation_batches = validation_datalist.create_iob_batches(batch_size, mini_batch_size)
+        training_batches = train_datalist.create_iob_batches(train_datalist.iob_data, batch_size, mini_batch_size)
+        validation_batches = validation_datalist.create_iob_batches(validation_datalist.iob_data, batch_size, mini_batch_size)
     except:
         # reraise exception - will still execute finally
         raise

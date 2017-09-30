@@ -88,7 +88,7 @@ class IOBModelWrapper(ModelWrapper):
                                 markup_type = self._iobs[markup_type]
                                 if markup_type == IOB_Type.B or category not in open_aspects:
                                     open_aspects[category] = len(aspects)
-                                    aspects.append(np.ones(length))
+                                    aspects.append(np.ones(mini_text_batch.shape[2]))
                                     aspect_categories.append(self._datalist.category_nums[category])
                                     aspects[-1][i] = 0
                                 else:
@@ -119,10 +119,11 @@ class PolarityModelWrapper(ModelWrapper):
             initial_backward=self._graph.get_tensor_by_name("model_2/initial_backward:0"),
             rnn_output_states=self._graph.get_tensor_by_name("model_2/bi_rnn:0")
         )
+        self._hidden_neurons = self._vars.initial_forward.shape[1]
 
     def classify_batch(self, mini_text_batch, mini_length_batch, mini_pos_batch, mini_annotation_batch, mini_category_batch, batch_size):
-        fw_init_state = np.zeros([batch_size, config.hidden_neurons])
-        bw_init_state = np.zeros([batch_size, config.hidden_neurons])
+        fw_init_state = np.zeros([batch_size, self._hidden_neurons])
+        bw_init_state = np.zeros([batch_size, self._hidden_neurons])
 
         mini_batch_loss = 0
         for text_batch, annotation_batch, length_batch, category_batch, pos_batch in zip(
@@ -131,11 +132,11 @@ class PolarityModelWrapper(ModelWrapper):
             (fw_init_state, bw_init_state), results = self._session.run(
                 [self._vars.rnn_output_states, self._vars.results],
                 {
-                    self._vars.words : text,
-                    self._vars.distances : distance,
-                    self._vars.categories : category,
-                    self._vars.lengths : length,
-                    self._vars.pos : pos,
+                    self._vars.words : np.squeeze(text_batch,0),
+                    self._vars.distances : annotation_batch,
+                    self._vars.categories : category_batch,
+                    self._vars.lengths : np.squeeze(length_batch,0),
+                    self._vars.pos : np.squeeze(pos_batch,0),
                     self._vars.initial_forward : fw_init_state,
                     self._vars.initial_backward : bw_init_state
                 }
@@ -177,7 +178,7 @@ def classify_iob(model, documents, datalist, batch_size, mini_batch_size):
 
         document_to_aspect_indices.append(document_indices)
 
-    batch = [np.array(i) for i in zip(*all_aspects)]
+    batch = [[np.array(i)] for i in zip(*all_aspects)]
     return document_to_aspect_indices, list(polarity_model.classify_batch(*batch, len(all_aspects)))
 
 
