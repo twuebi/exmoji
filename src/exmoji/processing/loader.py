@@ -203,13 +203,11 @@ class AspectDatalistBase(Datalist):
         if self.train:
             self.category_nums = Numberer()
             self.IOB_nums = Numberer()
-            self.polarity_aspect_category_nums = Numberer()
             self.distance_nums = Numberer(first_element=0)
             self.pos_tag_nums = Numberer()
         else:
             self.category_nums = trained_datalist.category_nums
             self.IOB_nums = trained_datalist.IOB_nums
-            self.polarity_aspect_category_nums = trained_datalist.polarity_aspect_category_nums
             self.distance_nums = trained_datalist.distance_nums
             self.pos_tag_nums = trained_datalist.pos_tag_nums
 
@@ -446,7 +444,7 @@ class AspectDatalist(AspectDatalistBase):
 
                     if not annotation in annotation_to_index:
                         annotation_to_index[annotation] = len(annotation_to_index)
-                        aspect_categories.append(self.polarity_aspect_category_nums.number(category, self.train))
+                        aspect_categories.append(self.category_nums.number(category, self.train))
 
             else:
                 # ignore irrelevant documents
