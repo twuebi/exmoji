@@ -221,7 +221,7 @@ class AspectDatalistBase(Datalist):
             for sentence in nltk.sent_tokenize(document, language="german")
         ]
 
-        pos_tags = self.pos_tagger.tag_sents(sentences)
+        #pos_tags = self.pos_tagger.tag_sents(sentences)
 
         single_lengths = [len(sentence) for sentence in sentences]
         sentence_lengths = sum(single_lengths)
@@ -229,12 +229,12 @@ class AspectDatalistBase(Datalist):
         numbered_sentences = []
         numbered_pos_tags = []
 
-        for sentence, sentence_pos in zip(sentences, pos_tags):
+        for sentence in sentences:# sentence_pos in zip(sentences, pos_tags):
             numbered_sentences += [
                 self.word_nums.number(word.lower(), self.train) for word in sentence
             ]
             numbered_pos_tags += [
-                self.pos_tag_nums.number(pos[1], self.train) for pos in sentence_pos
+                self.word_nums.number(word.lower(), self.train) for word in sentence
             ]
 
         return sentences, numbered_sentences, numbered_pos_tags, single_lengths, sentence_lengths
@@ -480,7 +480,7 @@ class AspectDatalist(AspectDatalistBase):
                                     if category[1][1]:  # if the annotation doesn't have a begin element yet
                                         category[1][1] = False
                                         iob_annotation[-1].append(
-                                            self.category_nums.number((IOB_Type.B, category[1][0]), self.train))
+                                            self.category_nums.number((IOB_Type.I, category[1][0]), self.train))
                                     else:
                                         iob_annotation[-1].append(
                                             self.category_nums.number((IOB_Type.I, category[1][0]), self.train))

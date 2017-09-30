@@ -78,6 +78,9 @@ class IOBModel():
             self.true_neg = tf.logical_and(tf.less(hp_labels, 1), tf.less(labels, 1))
             self.false_neg = tf.logical_and(tf.greater(hp_labels, 0), tf.less(labels, 1))
 
+            self.false = tf.reduce_sum(tf.add(tf.cast(self.false_pos, tf.float32), tf.cast(self.false_neg, tf.float32)))
+            self.total_labels = tf.cast(tf.reduce_sum(self.document_lengths) * config.label_size, tf.float32)
+            self.ham = 1 / self.total_labels * self.false
 
             label_equality = tf.boolean_mask(tf.cast(tf.equal(hp_labels, labels), tf.float32),tf.greater(tf.count_nonzero(greater,axis=1),0))
             masked_lengths = tf.boolean_mask(tf.cast(self.document_lengths, dtype=tf.float32),tf.greater(tf.count_nonzero(greater,axis=1),0))
