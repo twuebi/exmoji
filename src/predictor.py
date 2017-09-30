@@ -158,9 +158,13 @@ def classify_iob(model, documents, datalist, batch_size, mini_batch_size):
             continue
 
         document_indices = []
+        aspect_markup = []
+
         for aspect, category in zip(*aspects[3:]):
             # get the first and last indices of the array
             start, end = np.where(aspect == 0)[0][[0, -1]]
+            #Add text markup
+            aspect_markup.append(["I" if i == 0 else "O" for i in aspect])
             # add distances from the aspect
             if start:
                 aspect[:start] = np.fromiter(
@@ -179,8 +183,16 @@ def classify_iob(model, documents, datalist, batch_size, mini_batch_size):
         document_to_aspect_indices.append(document_indices)
 
     batch = [[np.array(i)] for i in zip(*all_aspects)]
-    return document_to_aspect_indices, list(polarity_model.classify_batch(*batch, len(all_aspects)))
+    return document_to_aspect_indices, aspect_markup, list(polarity_model.classify_batch(*batch, len(all_aspects)))
 
+
+def aspects_to_string(indices, markup, polarities):
+    for index_list in indices:
+        if not index_list:
+            yield "NONE\tNeutral\n\n"
+        else:
+            for i in index_list
+                yield "{}\t{}\n\n".format(markup[i], polarities[i])
 
 if __name__ == '__main__':
     import sys
@@ -217,14 +229,12 @@ if __name__ == '__main__':
             line_buffer.append(line)
             if len(line_buffer) == arguments.batch_size:
                 output_file.write(
-                    "\n".join(map(str, classify_iob(iob_model, line_buffer, datalist, len(line_buffer), arguments.mini_batch_size)))
-                    + "\n"
+                    aspects_to_string(*classify_iob(iob_model, line_buffer, datalist, len(line_buffer), arguments.mini_batch_size))
                 )
                 line_buffer = []
 
         # Handles batch overflow
         if line_buffer:
             output_file.write(
-                "\n".join(map(str, classify_iob(iob_model, line_buffer, datalist, len(line_buffer), arguments.mini_batch_size)))
-                + "\n"
+                aspects_to_string(*classify_iob(iob_model, line_buffer, datalist, len(line_buffer), arguments.mini_batch_size))
             )
