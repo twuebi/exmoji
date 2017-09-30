@@ -30,7 +30,7 @@ class ModelWrapper():
 
 
 IOBVars = namedtuple("IOBVars", "rnn_output_states inputs lengths pos initial_forward initial_backward results")
-PolarityVars = namedtuple("PolarityVars", "words lengths pos distances categories results")
+PolarityVars = namedtuple("PolarityVars", "words lengths pos distances categories results") # initial_forward initial_backward
 
 
 class IOBModelWrapper(ModelWrapper):
@@ -38,7 +38,10 @@ class IOBModelWrapper(ModelWrapper):
     def __init__(self, model_name, datalist):
         super().__init__(model_name)
         self._datalist = datalist
-        self._iobs = np.array([(IOB_Type.O, "NULL")] + [item[1] for item in sorted(datalist.category_nums.num2value.items(), key=lambda x: x[0])])
+        self._categories = np.array(
+            [(IOB_Type.O, "NULL")] + [item[1] for item in sorted(datalist.category_nums.num2value.items(), key=lambda x: x[0])]
+        )
+        self._iobs = np.array([item[1] for item in sorted(datalist.IOB_nums.num2value.items(), key=lambda x: x[0])], dtype=np.object)
 
     def _get_variables(self):
         self._vars = IOBVars(
@@ -58,38 +61,46 @@ class IOBModelWrapper(ModelWrapper):
             bw_init_state = np.zeros([batch_size, self._hidden_neurons])
 
             mini_batch_loss = 0
-            for text, length, pos in zip(mini_text_batch, mini_length_batch, mini_pos_batch):
+            for text, lengths, pos in zip(mini_text_batch, mini_length_batch, mini_pos_batch):
                 (fw_init_state, bw_init_state), results = self._session.run([self._vars.rnn_output_states, self._vars.results],
                     {
                         self._vars.initial_forward : fw_init_state,
                         self._vars.initial_backward : bw_init_state,
                         self._vars.inputs : text,
-                        self._vars.lengths : length,
+                        self._vars.lengths : lengths,
                         self._vars.pos : pos
                     }
                 )
-                for word_nums, iob in zip(text, results):
-                    aspect_locations = np.unique(np.nonzero(results)[0])
-                    words = word_nums[:word_nums.nonzero()[0][-1]]
+                for word_nums, iob, length in zip(text, results, lengths):
+                    words = word_nums[:length]
                     
-                    if not aspect_locations.size:
-                        yield [IOB_Type.O] * words.size
+                    if not np.count_nonzero(iob.argmax(axis=2)):
+                        yield None
                     else:
-                        #TODO: improve this (including improved I and B handling and distances for polarity)
                         aspects = []
+                        aspect_categories = []
+
                         open_aspects = {}
                         for i, (word_iob, word) in enumerate(zip(iob, words)):
-                            if np.count_nonzero(word_iob):
-                                for current in self._iobs[word_iob.nonzero()]:
-                                    markup_type, category = current
-                                    if category in open_aspects and markup_type == IOB_Type.I:
-                                        aspects[open_aspects[category]].append(category)
-
+                            categories = word_iob.argmax(axis=1)
+                            zeros = np.where(categories == 0)[0]
+                            non_zeros = categories.nonzero()[0]
+                            
+                            for markup_type, category, index in zip(categories[non_zeros], self._categories[non_zeros], non_zeros):
+                                markup_type = self._iobs[markup_type]
+                                if markup_type == IOB_Type.B or category not in open_aspects:
                                     open_aspects[category] = len(aspects)
-                                    aspects.append(([None] * i) + [category])
+                                    aspects.append(np.ones(length))
+                                    aspect_categories.append(self._datalist.category_nums[category])
+                                    aspects[-1][i] = 0
+                                else:
+                                    aspects[open_aspects[category]][i] = 0
 
+                            for category in categories[zeros]:
+                                if category in open_aspects:
+                                    del category
 
-                        yield aspects
+                        yield text, lengths, pos, aspects, aspect_categories
 
 
 class PolarityModelWrapper(ModelWrapper):
@@ -105,31 +116,72 @@ class PolarityModelWrapper(ModelWrapper):
             pos=self._graph.get_tensor_by_name("model_2/pos:0"),
             distances=self._graph.get_tensor_by_name("model_2/distances:0"),
             categories=self._graph.get_tensor_by_name("model_2/categories:0"),
-            results=self._graph.get_tensor_by_name("model_2/results:0")
+            results=self._graph.get_tensor_by_name("model_2/results:0"),
+            #initial_forward=self._graph.get_tensor_by_name("model_2/initial_forward:0"),
+            #initial_backward=self._graph.get_tensor_by_name("model_2/initial_backward:0"),
         )
 
     def classify_batch(self, text_batch, length_batch, pos_batch, distance_batch, category_batch):
-        for text, length, pos, distance, category in zip(
+        for mini_text_batch,  mini_length_batch,  mini_pos_batch, mini_annotation_batch, mini_category_batch in zip(
             text_batch, length_batch, pos_batch, distance_batch, category_batch
         ):
+            fw_init_state = np.zeros([config.batch_size, config.hidden_neurons])
+            bw_init_state = np.zeros([config.batch_size, config.hidden_neurons])
 
-            results = session.run([self._vars.results],
-                {
-                    self._vars.words : text,
-                    self._vars.distances : distance,
-                    self._vars.lengths : length,
-                    self._vars.categories : category,
-                    self._vars.pos : pos
-                }
-            )
+            mini_batch_loss = 0
+            for text_batch, annotation_batch, length_batch, category_batch, pos_batch in zip(
+                mini_text_batch, mini_annotation_batch, mini_length_batch, mini_category_batch, mini_pos_batch
+            ):
+                (fw_init_state, bw_init_state), results = session.run(
+                    [train_model.state, train_model.loss, train_model.training_operation],
+                    {
+                        self._vars.words : text,
+                        self._vars.distances : distance,
+                        self._vars.categories : category,
+                        self._vars.lengths : length,
+                        self._vars.pos : pos,
+                        self._vars.initial_forward : fw_init_state,
+                        self._vars.initial_backward : bw_init_state
+                    }
+                )
 
-            yield from (self._datalist.emo_nums.value(polarity) for polarity in results)
+                yield from (self._datalist.emo_nums.value(polarity) for polarity in results)
 
 
 def classify_iob(model, documents, datalist, batch_size, mini_batch_size):
     vectors = [datalist.process_document_text(document)[1:] for document in documents]
 
-    yield from model.classify_batch(*datalist.create_iob_batches(vectors, batch_size, mini_batch_size, predict=True), batch_size)
+    document_to_aspect_indices = []
+    all_aspects = []
+    aspect_batch = []
+
+    for aspects in model.classify_batch(*datalist.create_iob_batches(vectors, batch_size, mini_batch_size, predict=True), batch_size):
+        if not aspects or not aspects[-1]:
+            document_to_aspect_indices.append([])
+            continue
+
+        document_indices = []
+        for aspect, category in zip(*aspects[3:]):
+            # get the first and last indices of the array
+            start, end = np.where(aspect == 0)[0][[0, -1]]
+            # add distances from the aspect
+            if start:
+                aspect[:start] = np.fromiter(
+                    (datalist.distance_nums[d] for d in np.arange(-start, 0)),
+                    np.int16, start
+                )
+            if end < (len(aspect) - 1):
+                aspect[end + 1:] = np.fromiter(
+                    (datalist.distance_nums[d] for d in np.arange(1, len(aspect) - end)),
+                    np.int16, len(aspect) - end - 1
+                )
+
+            document_indices.append(len(all_aspects))
+            all_aspects.append((*aspects[:3], aspect, category))
+
+        document_to_aspect_indices.append(document_indices)
+
+    print(document_to_aspect_indices, all_aspects)
 
 
 if __name__ == '__main__':
