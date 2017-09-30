@@ -52,43 +52,44 @@ class IOBModelWrapper(ModelWrapper):
         )
         self._hidden_neurons = self._vars.initial_forward.shape[1]
 
-    def classify_batch(self, mini_text_batch, mini_length_batch, mini_pos_batch, batch_size):
-        fw_init_state = np.zeros([batch_size, self._hidden_neurons])
-        bw_init_state = np.zeros([batch_size, self._hidden_neurons])
+    def classify_batch(self, text_batch, length_batch, pos_batch, batch_size):
+        for mini_text_batch, mini_length_batch, mini_pos_batch in zip(text_batch, length_batch, pos_batch):
+            fw_init_state = np.zeros([batch_size, self._hidden_neurons])
+            bw_init_state = np.zeros([batch_size, self._hidden_neurons])
 
-        mini_batch_loss = 0
-        for text, length, pos in zip(mini_text_batch, mini_length_batch, mini_pos_batch):
-            (fw_init_state, bw_init_state), results = self._session.run([self._vars.rnn_output_states, self._vars.results],
-                {
-                    self._vars.initial_forward : fw_init_state,
-                    self._vars.initial_backward : bw_init_state,
-                    self._vars.inputs : text,
-                    self._vars.lengths : length,
-                    self._vars.pos : pos
-                }
-            )
-            for word_nums, iob in zip(text, results):
-                aspect_locations = np.unique(np.nonzero(results)[0])
-                words = word_nums[:word_nums.nonzero()[0][-1]]
-                
-                if not aspect_locations.size:
-                    yield [IOB_Type.O] * words.size
-                else:
-                    #TODO: improve this (including improved I and B handling and distances for polarity)
-                    aspects = []
-                    open_aspects = {}
-                    for i, (word_iob, word) in enumerate(zip(iob, words)):
-                        if np.count_nonzero(word_iob):
-                            for current in self._iobs[word_iob.nonzero()]:
-                                markup_type, category = current
-                                if category in open_aspects and markup_type == IOB_Type.I:
-                                    aspects[open_aspects[category]].append(category)
+            mini_batch_loss = 0
+            for text, length, pos in zip(mini_text_batch, mini_length_batch, mini_pos_batch):
+                (fw_init_state, bw_init_state), results = self._session.run([self._vars.rnn_output_states, self._vars.results],
+                    {
+                        self._vars.initial_forward : fw_init_state,
+                        self._vars.initial_backward : bw_init_state,
+                        self._vars.inputs : text,
+                        self._vars.lengths : length,
+                        self._vars.pos : pos
+                    }
+                )
+                for word_nums, iob in zip(text, results):
+                    aspect_locations = np.unique(np.nonzero(results)[0])
+                    words = word_nums[:word_nums.nonzero()[0][-1]]
+                    
+                    if not aspect_locations.size:
+                        yield [IOB_Type.O] * words.size
+                    else:
+                        #TODO: improve this (including improved I and B handling and distances for polarity)
+                        aspects = []
+                        open_aspects = {}
+                        for i, (word_iob, word) in enumerate(zip(iob, words)):
+                            if np.count_nonzero(word_iob):
+                                for current in self._iobs[word_iob.nonzero()]:
+                                    markup_type, category = current
+                                    if category in open_aspects and markup_type == IOB_Type.I:
+                                        aspects[open_aspects[category]].append(category)
 
-                                open_aspects[category] = len(aspects)
-                                aspects.append(([None] * i) + [category])
+                                    open_aspects[category] = len(aspects)
+                                    aspects.append(([None] * i) + [category])
 
 
-                    yield aspects
+                        yield aspects
 
 
 class PolarityModelWrapper(ModelWrapper):
@@ -107,9 +108,9 @@ class PolarityModelWrapper(ModelWrapper):
             results=self._graph.get_tensor_by_name("model_2/results:0")
         )
 
-    def classify_batch(self, mini_text_batch, mini_length_batch, mini_pos_batch, mini_distance_batch, mini_category_batch):
+    def classify_batch(self, text_batch, length_batch, pos_batch, distance_batch, category_batch):
         for text, length, pos, distance, category in zip(
-            mini_text_batch, mini_length_batch, mini_pos_batch, mini_distance_batch, mini_category_batch
+            text_batch, length_batch, pos_batch, distance_batch, category_batch
         ):
 
             results = session.run([self._vars.results],
@@ -128,7 +129,7 @@ class PolarityModelWrapper(ModelWrapper):
 def classify_iob(model, documents, datalist, batch_size, mini_batch_size):
     vectors = [datalist.process_document_text(document)[1:] for document in documents]
 
-    yield from model.classify_batch(*datalist.create_iob_batches(vectors, batch_size, mini_batch_size, mini_batch=False, predict=True), batch_size)
+    yield from model.classify_batch(*datalist.create_iob_batches(vectors, batch_size, mini_batch_size, predict=True), batch_size)
 
 
 if __name__ == '__main__':
@@ -160,7 +161,7 @@ if __name__ == '__main__':
 
     line_buffer = []
     with IOBModelWrapper(arguments.iob_model_name, datalist) as iob_model, \
-        PolarityModelWrapper(arguments.polarity_model_name) as polarity_model, \
+        PolarityModelWrapper(arguments.polarity_model_name, datalist) as polarity_model, \
         arguments.input as input_file, arguments.output as output_file:
         for line in input_file:
             line_buffer.append(line)

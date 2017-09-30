@@ -418,7 +418,7 @@ if __name__ == '__main__':
             max_epochs=arguments.max_epochs,
             vocabulary_size=train_datalist.n_words,
             num_distances=train_datalist.n_distances,
-            num_categories=train_datalist.polarity_aspect_category_nums.max,
+            num_categories=train_datalist.category_nums.max,
             category_embedding_size=arguments.category_embedding_size,
             pos_embedding_size=arguments.pos_embedding_size,
             num_pos=train_datalist.pos_tag_nums.max,
