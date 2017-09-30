@@ -228,13 +228,11 @@ if __name__ == '__main__':
         for line in input_file:
             line_buffer.append(line)
             if len(line_buffer) == arguments.batch_size:
-                output_file.write(
-                    aspects_to_string(*classify_iob(iob_model, line_buffer, datalist, len(line_buffer), arguments.mini_batch_size))
-                )
+                for entry in aspects_to_string(*classify_iob(iob_model, line_buffer, datalist, len(line_buffer), arguments.mini_batch_size)):
+                    output_file.write(entry)
                 line_buffer = []
 
         # Handles batch overflow
         if line_buffer:
-            output_file.write(
-                aspects_to_string(*classify_iob(iob_model, line_buffer, datalist, len(line_buffer), arguments.mini_batch_size))
-            )
+            for entry in aspects_to_string(*classify_iob(iob_model, line_buffer, datalist, len(line_buffer), arguments.mini_batch_size)):
+                output_file.write(entry)
