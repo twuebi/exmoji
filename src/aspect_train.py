@@ -6,6 +6,7 @@ import os
 import tensorflow as tf
 import numpy as np
 import argparse
+from gensim.models.keyedvectors import KeyedVectors
 
 from exmoji import Mode, IOBModel, AspectPolarityModel
 
@@ -13,7 +14,7 @@ IOBConfig = namedtuple("IOBConfig",
                        "batch_size label_size input_size word_embedding_size "
                        "hidden_neurons hidden_dropout input_dropout initial_learning_rate "
                        "max_epochs vocabulary_size pos_embedding_size num_pos mini_batch_size "
-                       "patience model_path"
+                       "patience model_path w2v_path"
                        )
 
 PolarityConfig = namedtuple("PolarityConfig",
@@ -29,7 +30,11 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
     with tf.Session() as session:
         with tf.variable_scope("model", reuse=False):
             train_model = IOBModel(config, training_max_length, Mode.TRAIN)
-
+            if config.w2v_path:
+                m = KeyedVectors.load_word2vec_format('/home/tobi/Downloads/wiki.de2w2v')
+                session.run([train_model.init_embeddings], feed_dict={
+                    train_model.feed_embeddings : m.syn0
+                })
         with tf.variable_scope("model", reuse=True):
             validation_model = IOBModel(config, validation_max_length, Mode.VALIDATE)
 
@@ -334,7 +339,7 @@ def parse_arguments():
     iob_parser.add_argument('--word-embedding-size', '-w', metavar='N', type=int, default=200,
                             help='size of input word embedding vectors')
     iob_parser.add_argument('--mini-batch-size', '-mb', metavar='N', type=int, default=150, help='size of minibatches')
-
+    iob_parser.add_argument('--w2v-path', '-w2v', metavar='N', type=str, default=None, help='path to pretrained word embeddings')
     polarity_parser = subparsers.add_parser(
         'polarity', help="trains polarity classification of aspects", parents=[common_parser],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
@@ -385,7 +390,8 @@ if __name__ == '__main__':
             pos_embedding_size=arguments.pos_embedding_size,
             num_pos=train_datalist.pos_tag_nums.max,
             patience=arguments.early_stopping_patience,
-            model_path=arguments.save_model
+            model_path=arguments.save_model,
+            w2v_path=arguments.w2v_path
         )
 
         training_batches, validation_batches = load_iob_batches(train_datalist, validation_datalist, config.batch_size,

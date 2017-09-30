@@ -17,9 +17,16 @@ class IOBModel():
             self.labels = tf.placeholder(tf.int32,
                                          shape=[None, None, config.label_size],
                                          name="labels")
+        if config.w2v_path:
+            with tf.device('/cpu:0'):
+                self.feed_embeddings = tf.placeholder(tf.float32,shape=[config.vocabulary_size, config.word_embedding_size])
+                embeddings = tf.get_variable("embeddings", shape=[config.vocabulary_size, config.word_embedding_size],
+                                            initializer=tf.contrib.layers.xavier_initializer(),trainable=False)
+                self.init_embeddings = embeddings.assign(self.feed_embeddings)
+        else:
+            embeddings = tf.get_variable("embeddings", shape=[config.vocabulary_size, config.word_embedding_size],
+                                         initializer=tf.contrib.layers.xavier_initializer())
 
-        embeddings = tf.get_variable("embeddings", shape=[config.vocabulary_size, config.word_embedding_size],
-                                     initializer=tf.contrib.layers.xavier_initializer())
         input_embeddings = tf.nn.embedding_lookup(embeddings, self.inputs)
 
         if config.pos_embedding_size:
@@ -59,7 +66,7 @@ class IOBModel():
             self.training_operation = tf.train.AdamOptimizer(config.initial_learning_rate).minimize(losses)
 
         elif mode == Mode.PREDICT:
-            self.results = tf.round(tf.nn.sigmoid(logits), name="results")
+            self.results = tf.argmax(logits,axis=-1)
 
         elif mode == Mode.VALIDATE:
 
