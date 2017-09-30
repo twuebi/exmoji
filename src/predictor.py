@@ -179,7 +179,7 @@ def classify_iob(model, documents, datalist, batch_size, mini_batch_size):
         document_to_aspect_indices.append(document_indices)
 
     batch = [[np.array(i)] for i in zip(*all_aspects)]
-    return document_to_aspect_indices, list(polarity_model.classify_batch(*batch, len(all_aspects)))
+    return document_to_aspect_indices, (list(polarity_model.classify_batch(*batch, len(all_aspects)) if len(all_aspects) != 0 else len(documents) * []))
 
 
 if __name__ == '__main__':

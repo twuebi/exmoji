@@ -18,7 +18,7 @@ class IOBModel():
                                          shape=[None, None, config.label_size],
                                          name="labels")
         self.embeddings = embeddings = tf.get_variable("embeddings", shape=[config.vocabulary_size, config.word_embedding_size],
-                                                       initializer=tf.contrib.layers.xavier_initializer())
+                                                       initializer=tf.contrib.layers.xavier_initializer(), trainable=False)
 
         input_embeddings = tf.nn.embedding_lookup(embeddings, self.inputs)
 

@@ -231,7 +231,7 @@ class AspectDatalistBase(Datalist):
 
         for sentence ,sentence_pos in zip(sentences, pos_tags):
             numbered_sentences += [
-                self.word_nums.number(word.lower(), self.train) for word in sentence
+                self.word_nums.number(word, self.train) for word in sentence
             ]
             numbered_pos_tags += [
                 self.word_nums.number(word.lower(), self.train) for word in sentence# self.pos_tag_nums.number(pos, self.train) for pos in sentence_pos # TODO activate again!
