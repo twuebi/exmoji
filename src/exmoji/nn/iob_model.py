@@ -59,7 +59,7 @@ class IOBModel():
             self.training_operation = tf.train.AdamOptimizer(config.initial_learning_rate).minimize(losses)
 
         elif mode == Mode.PREDICT:
-            self.results = tf.argmax(logits,axis=-1)
+            self.results = tf.argmax(logits,axis=-1, name="results")
 
         elif mode == Mode.VALIDATE:
 
