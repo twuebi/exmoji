@@ -221,7 +221,7 @@ class AspectDatalistBase(Datalist):
             for sentence in nltk.sent_tokenize(document, language="german")
         ]
 
-        pos_tags = self.pos_tagger.tag_sents(sentences)
+        pos_tags = [1]*len(sentences)#self.pos_tagger.tag_sents(sentences)
 
         single_lengths = [len(sentence) for sentence in sentences]
         sentence_lengths = sum(single_lengths)
@@ -234,7 +234,7 @@ class AspectDatalistBase(Datalist):
                 self.word_nums.number(word.lower(), self.train) for word in sentence
             ]
             numbered_pos_tags += [
-                self.pos_tag_nums.number(pos, self.train) for pos in sentence_pos
+                self.word_nums.number(word.lower(), self.train) for word in sentence# self.pos_tag_nums.number(pos, self.train) for pos in sentence_pos # TODO activate again!
             ]
 
         return sentences, numbered_sentences, numbered_pos_tags, single_lengths, sentence_lengths
@@ -245,7 +245,6 @@ class AspectDatalistBase(Datalist):
         text_batches = []
         pos_batches = []
         if not predict:
-            iob_batches = []
             cat_batches = []
         document_length_batches = []
 
@@ -368,7 +367,7 @@ class AspectDatalistBase(Datalist):
 
     @property
     def numberers(self):
-        return self.category_nums, self.distance_nums, self.word_nums, self.emo_nums, self.pos_tag_nums, self.IOB_num
+        return self.category_nums, self.distance_nums, self.word_nums, self.emo_nums, self.pos_tag_nums, self.IOB_nums
 
     @property
     def n_pos_tags(self):
@@ -591,7 +590,6 @@ class AspectDatalist(AspectDatalistBase):
 
 class Numberer:
     def __init__(self, first_element=None):
-        self.external_numbers = False
         self.unkown_idx = 0
         if first_element:
             self.num2value = {1: first_element}
@@ -603,7 +601,6 @@ class Numberer:
             self.idx = 1
 
     def number(self, value, train):
-        train = (not self.external_numbers) and train
 
         if train and value not in self.value2num:
             self.value2num[value] = self.idx
