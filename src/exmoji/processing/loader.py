@@ -221,7 +221,7 @@ class AspectDatalistBase(Datalist):
             for sentence in nltk.sent_tokenize(document, language="german")
         ]
 
-        pos_tags = [1]*len(sentences)#self.pos_tagger.tag_sents(sentences)
+        pos_tags = self.pos_tagger.tag_sents(sentences)
 
         single_lengths = [len(sentence) for sentence in sentences]
         sentence_lengths = sum(single_lengths)
@@ -229,12 +229,12 @@ class AspectDatalistBase(Datalist):
         numbered_sentences = []
         numbered_pos_tags = []
 
-        for sentence ,sentence_pos in zip(sentences, pos_tags):
+        for sentence, sentence_pos in zip(sentences, pos_tags):
             numbered_sentences += [
                 self.word_nums.number(word, self.train) for word in sentence
             ]
             numbered_pos_tags += [
-                self.word_nums.number(word.lower(), self.train) for word in sentence# self.pos_tag_nums.number(pos, self.train) for pos in sentence_pos # TODO activate again!
+                self.pos_tag_nums.number(pos, self.train) for pos in sentence_pos
             ]
 
         return sentences, numbered_sentences, numbered_pos_tags, single_lengths, sentence_lengths
@@ -267,7 +267,6 @@ class AspectDatalistBase(Datalist):
             pos_batch = np.zeros((batch_size, self.max_len_sentences), dtype=np.int32)
 
             if not predict:
-                iob_batch = np.zeros((batch_size, self.max_len_sentences, self.IOB_nums.max), dtype=np.int32)
                 cat_batch = np.zeros((batch_size, self.max_len_sentences, self.category_nums.max), dtype=np.int32)
             document_lengths = np.zeros(batch_size, dtype=np.int32)
             sentence_lengths = np.zeros([batch_size, self.max_amount_sentences])
@@ -302,17 +301,16 @@ class AspectDatalistBase(Datalist):
                     text_batch, pos_batch = time_axis
                 else:
                     time_axis, _, document_lengths = self.create_mini_batch(batch_size,
-                                                                            [iob_batch, cat_batch, text_batch,
+                                                                            [cat_batch, text_batch,
                                                                              pos_batch],
                                                                             sentence_lengths,
                                                                             mini_batch_size)
-                    iob_batch, cat_batch, text_batch, pos_batch = time_axis
+                    cat_batch, text_batch, pos_batch = time_axis
             if not predict:
                 cat_batches.append(cat_batch)
             text_batches.append(text_batch)
             pos_batches.append(pos_batch)
             document_length_batches.append(document_lengths)
-
         return (text_batches, cat_batches, document_length_batches, pos_batches) if not predict else (
             text_batches, document_length_batches, pos_batches)
 
@@ -482,7 +480,6 @@ class AspectDatalist(AspectDatalistBase):
                 text_index = 0
                 word_index = 0
                 available_ends = {}
-                new = True
 
                 for sentence in sentences:
                     # advance to next sentence

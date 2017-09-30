@@ -27,6 +27,8 @@ PolarityConfig = namedtuple("PolarityConfig",
 
 
 def train_iob_model(training_batches, validation_batches, training_max_length, validation_max_length, config):
+    np.set_printoptions(5, suppress=True)
+
     with tf.Session() as session:
         with tf.variable_scope("model", reuse=False):
             train_model = IOBModel(config, training_max_length, Mode.TRAIN)
@@ -64,8 +66,9 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
                 for text, cat, length, pos in zip(mini_text_batch, mini_category_batch, mini_length_batch,
                                                   mini_pos_batch):
                     ratio = np.sum(np.count_nonzero(cat, axis=0), axis=0) / (np.sum(length))
+
                     ratio[np.argwhere(ratio == 0)] += 1
-                    ratio = (1 / ratio)
+                    ratio = (1 / ratio) / 10
                     (fw_init_state, bw_init_state), loss, _ = session.run(
                         [train_model.state, train_model.loss, train_model.training_operation],
                         {
@@ -127,22 +130,32 @@ def train_iob_model(training_batches, validation_batches, training_max_length, v
                 hamming_loss += mini_batch_hamming
                 validation_loss += mini_batch_loss
                 validation_accuracy += mini_batch_accuracy
+
             hamming_loss /= len(training_batches[0])
             train_loss /= len(training_batches[0])
             validation_loss /= len(validation_batches[0])
             validation_accuracy /= len(validation_batches[0])
-            np.set_printoptions(10, suppress=True)
 
+            precision = true_positives.astype(np.int64) / predicted_positives.astype(np.int64)
+            recall = true_positives.astype(np.int64) / (false_negatives + true_positives.astype(np.int64))
+            overall_precision = np.sum(true_positives.astype(np.int64)) / np.sum(predicted_positives.astype(np.int64))
+            overall_recall = np.sum(true_positives.astype(np.int64)) / np.sum((false_negatives + true_positives.astype(np.int64)))
+            overall_f1 = 2* (overall_precision*overall_recall) / (overall_precision + overall_recall)
+
+            print("f1 score: ")
+            print(2* ((precision*recall) / (precision + recall)))
             print()
             print("precision (no distinction between B and I): ")
-            print(true_positives.astype(np.int64) / predicted_positives.astype(np.int64))
+            print(precision)
             print()
             print("recall (no distinction between B and I): ")
-            print(true_positives.astype(np.int64) / (false_negatives + true_positives.astype(np.int64)))
+            print(recall)
             print()
             print(
-                "epoch {} | train loss: {:.4f} | validation loss: {:.4f} | hamming loss: {:.6f} | Accuracy: {:.2f}%".format(
-                    epoch, train_loss, validation_loss, hamming_loss, validation_accuracy * 100
+                "epoch {} | train loss: {:.4f} | validation loss: {:.4f} | hamming loss: {:.6f} | Accuracy: {:.2f}% \n "
+                "Precision: {:.2f} | Recall: {:.2f} | F1-Score: {:.2f}".format(
+                    epoch, train_loss, validation_loss, hamming_loss, validation_accuracy * 100, overall_precision,
+                    overall_recall, overall_f1
                 )
             )
 

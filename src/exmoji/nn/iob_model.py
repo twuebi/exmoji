@@ -18,7 +18,7 @@ class IOBModel():
                                          shape=[None, None, config.label_size],
                                          name="labels")
         self.embeddings = embeddings = tf.get_variable("embeddings", shape=[config.vocabulary_size, config.word_embedding_size],
-                                                       initializer=tf.contrib.layers.xavier_initializer(), trainable=False)
+                                                       initializer=tf.contrib.layers.xavier_initializer())
 
         input_embeddings = tf.nn.embedding_lookup(embeddings, self.inputs)
 
@@ -41,8 +41,9 @@ class IOBModel():
 
         # Apply weights on every pair of word representations from the forward and backward propagation
         logits = tf.einsum('ijk,klm->ijlm', hidden, output_weights)
+
+        # mask
         nz = tf.count_nonzero(logits, 3)
-        # nz = tf.reduce_sum(nz,axis=2)
         greater = tf.greater(nz, 0)
         greater_exp = tf.expand_dims(greater, -1)
         logits += output_bias * tf.cast(greater_exp, tf.float32)
