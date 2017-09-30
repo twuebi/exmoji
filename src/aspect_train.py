@@ -7,7 +7,7 @@ import tensorflow as tf
 import numpy as np
 import argparse
 
-from exmoji.nn import Mode, IOBModel, AspectPolarityModel
+from exmoji import Mode, IOBModel, AspectPolarityModel
 
 IOBConfig = namedtuple("IOBConfig",
                        "batch_size label_size input_size word_embedding_size "
